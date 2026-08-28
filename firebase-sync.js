@@ -29,8 +29,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/fireba
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   onAuthStateChanged,
   signOut as firebaseSignOut,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
@@ -58,6 +57,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
+const ADMIN_EMAIL = 'vlaskin.vladyslav@gmail.com';
 
 let currentUser = null;
 let approved = false;
@@ -83,7 +83,7 @@ onValue(ref(db, '.info/connected'), (snap) => {
 
 // ---------- Auth ----------
 async function signIn() {
-  await signInWithRedirect(auth, new GoogleAuthProvider());
+  await signInWithPopup(auth, new GoogleAuthProvider());
 }
 async function signOutUser() {
   await firebaseSignOut(auth);
@@ -124,10 +124,11 @@ onAuthStateChanged(auth, async (user) => {
   emit(currentStatus());
 
   if (approved) await bootstrapSync();
+  
 });
 
 // Completes the Google sign-in after the redirect bounces back here.
-getRedirectResult(auth).catch(() => { /* no pending redirect, or it failed silently */ });
+//getRedirectResult(auth).catch(() => { /* no pending redirect, or it failed silently */ });
 
 // ---------- One-time bootstrap: reconcile local vs cloud on first sync ----------
 // Rule, kept deliberately simple: local history is never silently

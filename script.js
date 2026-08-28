@@ -1372,7 +1372,7 @@ function initCloudSyncUI() {
 
     if (status.state === 'signed-out') {
       dot.classList.add('is-off');
-      label.textContent = 'Не увійшли — записи лишаються тільки на цьому пристрої';
+      label.textContent = 'Увійдіть до акаунту, щоб синхронізувати зписи із хмарою';
       signInBtn.style.display = '';
     } else if (status.state === 'pending') {
       dot.classList.add('is-pending');
@@ -1392,14 +1392,30 @@ function initCloudSyncUI() {
   }
 
   window.addEventListener('cloudsync:status', (e) => render(e.detail));
-  // CloudSync may already have a status by the time this runs (module
-  // scripts execute independently of this classic script's load order).
+  
   if (window.CloudSync) render(window.CloudSync.getStatus());
   else render({ state: 'signed-out' });
 
-  signInBtn.addEventListener('click', () => window.CloudSync && window.CloudSync.signIn());
-  signOutBtn.addEventListener('click', () => window.CloudSync && window.CloudSync.signOut());
-  forceSyncBtn.addEventListener('click', () => window.CloudSync && window.CloudSync.forceSync());
+  // Оновлені безпечні обробники кліків:
+  signInBtn.addEventListener('click', () => {
+    if (window.CloudSync && typeof window.CloudSync.signIn === 'function') {
+      window.CloudSync.signIn();
+    } else {
+      console.warn('CloudSync ще не завантажився');
+    }
+  });
+
+  signOutBtn.addEventListener('click', () => {
+    if (window.CloudSync && typeof window.CloudSync.signOut === 'function') {
+      window.CloudSync.signOut();
+    }
+  });
+
+  forceSyncBtn.addEventListener('click', () => {
+    if (window.CloudSync && typeof window.CloudSync.forceSync === 'function') {
+      window.CloudSync.forceSync();
+    }
+  });
 }
 
 
