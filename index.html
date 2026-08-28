@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>ShiftMe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+
+<!-- PWA: installable as an app icon, works offline, no browser chrome -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#14171c">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ShiftMe">
+</head>
+<body>
+
+<!-- Splash screen: shown instantly, hidden once the app has initialized -->
+<div class="splash" id="splash">
+  <div class="splash-bars">
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+  <p class="splash-caption">ShiftMe</p>
+  <p class="splash-version">v0.2.1 alpha</p>
+</div>
+
+<div class="wrap" id="appWrap">
+  <header>
+    <h1>Shift<span>Me</span></h1>
+    <p class="today-date" id="todayDate"></p>
+  </header>
+
+  <div class="cycle-strip" id="cycleStrip"></div>
+
+  <div class="status-card" id="statusCard">
+    <img class="status-icon" id="statusIcon" src="workDay.png" alt="">
+    <p class="status-label">Сьогодні</p>
+    <p class="status-value" id="statusValue">—</p>
+
+    <div class="status-next-box" id="statusNextBox">
+      <img class="status-next-icon" src="calendar.png" alt="">
+      <div class="status-next-text">
+        <p class="status-next-label" id="statusNextLabel">—</p>
+        <p class="status-next-value" id="statusNextValue">—</p>
+      </div>
+    </div>
+
+    <div class="status-sub" id="todayEarnRow" style="display:none;">
+      <span>Зароблено сьогодні</span>
+      <b class="money" id="todayEarnValue">0 ₴</b>
+    </div>
+    <div id="trendBadge" class="trend-badge" style="display:none;"></div>
+    <button class="add-earn-btn" id="addEarnToday">+ Записати заробіток за сьогодні</button>
+
+    <div class="today-entries-section" id="todayEntriesSection" style="display:none;">
+      <p class="today-entries-title">Записи за сьогодні</p>
+      <div class="today-entries-list" id="todayEntriesList"></div>
+    </div>
+  </div>
+
+  <div class="goal-card" id="goalCard">
+    <div class="goal-setup goal-empty" id="goalSetup">
+      <div class="goal-ripple" id="goalSetupIcon">
+        <span class="goal-ripple-ring"></span>
+        <span class="goal-ripple-ring"></span>
+        <span class="goal-ripple-ring"></span>
+        <span class="goal-ripple-dot"></span>
+      </div>
+      <p class="goal-empty-title" id="goalSetupTitle">Встанови ціль на місяць</p>
+      <p class="goal-empty-sub" id="goalSetupSub">Порахуємо, скільки треба заробляти щодня, щоб дійти суми</p>
+      <div class="goal-input-row">
+        <input type="number" id="goalInput" placeholder="напр. 35000" min="0">
+        <button id="goalSetBtn">Зберегти</button>
+      </div>
+    </div>
+
+    <div class="goal-active" id="goalActive">
+      <div class="goal-head">
+        <span>Ціль на <span id="goalMonthName">—</span></span>
+        <div class="goal-head-actions">
+          <button class="goal-icon-btn" id="goalEditBtn" title="Змінити ціль">✎</button>
+        </div>
+      </div>
+      <div class="goal-progress-track"><div class="goal-progress-fill" id="goalFill"></div><div class="goal-progress-shimmer" id="goalShimmer"></div></div>
+      <div class="goal-progress-nums">
+        <span><b id="goalEarned">0 ₴</b> / <span id="goalTargetLabel">0 ₴</span></span>
+        <span class="goal-progress-pct" id="goalPct">0%</span>
+      </div>
+
+      <p class="goal-reached" id="goalReachedMsg"></p>
+
+      <div class="goal-today" id="goalTodayBox">
+        <p class="goal-today-label" id="goalTodayLabel">Потрібно сьогодні</p>
+        <p class="goal-today-value" id="goalTodayValue">0 ₴</p>
+        <div class="goal-today-parts-row" id="goalPartsRow"></div>
+      </div>
+
+      <p class="goal-no-shifts" id="goalNoShiftsMsg">Робочих змін до кінця місяця більше немає</p>
+
+      <div class="goal-upcoming" id="goalUpcoming"></div>
+
+      <button class="goal-remove" id="goalRemoveBtn">Прибрати ціль</button>
+    </div>
+  </div>
+
+  <div class="cal-nav">
+    <button id="prevMonth">‹</button>
+    <p class="cal-title" id="calTitle"></p>
+    <button id="nextMonth">›</button>
+  </div>
+  <div class="weekdays">
+    <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Нд</span>
+  </div>
+  <div class="cal-grid" id="calGrid"></div>
+
+  <div class="month-total">
+    <span>Заробіток за місяць</span>
+    <b id="monthTotal">0 ₴</b>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="legend-swatch work"></span><span>Робочий</span></div>
+    <div class="legend-item"><span class="legend-swatch off"></span><span>Вихідний</span></div>
+    <div class="legend-item"><span class="legend-swatch money"></span><span>Заробіток</span></div>
+    <div class="legend-item"><span class="legend-swatch leave"></span><span>За свій рахунок</span></div>
+  </div>
+
+  <div class="coming-soon-banner">
+    <p class="coming-soon-title">Процес розробки</p>
+    <p class="coming-soon-sub">Застосунок перебуває у активній розробці. Не забувайте створювати резервні копії для збереження записів</p>
+  </div>
+
+  <p class="section-title">Статистика</p>
+
+  <div class="chart-card">
+    <div class="chart-head">
+      <span>Заробіток за останні 14 робочих змін</span>
+      <span class="chart-avg" id="chartAvgLabel">сер. 0 ₴</span>
+    </div>
+    <div id="earningsChart"></div>
+    <div class="chart-legend">
+      <div class="legend-item"><span class="legend-dot above"></span><span>вище середнього</span></div>
+      <div class="legend-item"><span class="legend-dot below"></span><span>нижче середнього</span></div>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-box">
+      <p class="stat-label">Всього зароблено</p>
+      <p class="stat-value money" id="statAllTime">0 ₴</p>
+    </div>
+    <div class="stat-box">
+      <p class="stat-label">Рекорд дня</p>
+      <p class="stat-value money" id="statRecord">0 ₴</p>
+      <p class="stat-sub" id="statRecordDate">—</p>
+    </div>
+  </div>
+
+  <div class="product-stats-card">
+    <div class="chart-head"><span>По виробах, за весь час</span></div>
+    <div id="productStats"></div>
+  </div>
+
+  <div class="cloud-sync-card" id="cloudSyncCard">
+    <div class="cloud-sync-row">
+      <span class="cloud-sync-dot" id="cloudSyncDot"></span>
+      <p class="cloud-sync-label" id="cloudSyncLabel">—</p>
+    </div>
+    <div class="cloud-sync-actions">
+      <button class="data-btn" id="cloudSignInBtn" type="button">Увійти через Google</button>
+      <button class="data-btn" id="cloudSignOutBtn" type="button">Вийти</button>
+      <button class="data-btn" id="cloudForceSyncBtn" type="button">🔄 Синхронізувати зараз</button>
+    </div>
+  </div>
+
+  <div class="data-actions">
+    <button class="data-btn" id="exportBtn" type="button">⭳ Експорт JSON</button>
+    <label class="data-btn" for="importFile">⭱ Імпорт JSON</label>
+    <input type="file" id="importFile" accept="application/json" style="display:none;">
+  </div>
+  <p class="data-note" id="dataNote"></p>
+  <p class="app-footer">ShiftMe v0.7.0 Alpha · Powered by TioDeNadal</p>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modalBox">
+    <div class="modal-handle"></div>
+    <div class="modal-head">
+      <p class="modal-title" id="modalTitle">—</p>
+      <button class="modal-close" id="modalClose">✕</button>
+    </div>
+    <p class="modal-status" id="modalStatus"></p>
+    <button class="leave-toggle-btn" id="leaveToggleBtn" type="button"></button>
+
+    <div class="entry-list" id="entryList"></div>
+    <div class="day-product-summary" id="dayProductSummary"></div>
+    <div class="day-total-row">
+      <span>Разом за день</span>
+      <b id="dayTotal">0 ₴</b>
+    </div>
+
+    <p class="modal-off-note" id="modalOffNote">Вихідний день — запис заробітку недоступний.</p>
+    <p class="modal-leave-note" id="modalLeaveNote">
+      <!-- Заглушка під іконку: постав leaveDay.png у корінь репозиторію
+           поруч з workDay.png/offDay.png/calendar.png, і розкоментуй: -->
+      <!-- <img class="leave-note-icon" src="leaveDay.png" alt=""> -->
+      Вихідний за свій рахунок — заробіток за цей день не рахується в статистику й ціль.
+    </p>
+
+    <p class="form-label">Виріб</p>
+    <div class="product-choice" id="productChoice">
+      <div class="product-btn" id="coreTile0">
+        <span class="code" id="coreTile0Code"></span><span class="rate" id="coreTile0Rate"></span>
+      </div>
+      <div class="product-btn" id="coreTile1">
+        <span class="code" id="coreTile1Code"></span><span class="rate" id="coreTile1Rate"></span>
+      </div>
+      <div id="customProductTiles" style="display:contents;"></div>
+      <div class="product-btn product-toggle-tile" id="productToggleTile" style="display:none;">
+        <span class="code" id="toggleCountLabel">+0</span><span class="rate">показати всі</span>
+      </div>
+      <div class="product-btn product-add-tile" id="productAddTile">
+        <span class="code">+</span><span class="rate">додати виріб</span>
+      </div>
+    </div>
+    <div class="product-add-form" id="productAddForm" style="display:none;">
+      <input type="text" id="newProdCode" placeholder="Код виробу, напр. 5210" maxlength="16">
+      <input type="number" id="newProdRate" placeholder="Ставка, ₴/шт" step="0.01" min="0">
+      <p class="product-add-error" id="productAddError"></p>
+      <div class="product-add-actions">
+        <button type="button" id="newProdCancel">Скасувати</button>
+        <button type="button" id="newProdSave">Додати</button>
+      </div>
+    </div>
+
+    <p class="form-label">Кількість, шт</p>
+    <div class="qty-row">
+      <input type="number" inputmode="numeric" id="qtyInput" placeholder="напр. 173" min="0">
+    </div>
+
+    <p class="form-label">№ замовлення <span class="form-label-optional">необов'язково</span></p>
+    <div class="qty-row">
+      <input type="text" inputmode="numeric" id="orderInput" placeholder="напр. 4521">
+    </div>
+
+    <p class="preview-line" id="previewLine"></p>
+
+    <button class="submit-btn" id="submitEntry" disabled>Додати запис</button>
+    <p class="save-note" id="saveNote"></p>
+  </div>
+</div>
+
+<script type="module" src="firebase-sync.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
