@@ -15,21 +15,14 @@
 //                        Lets the UI trigger sign-in/out, force a
 //                        reconnect, and react to connection/approval
 //                        status changes.
-//
-// Access model: anyone who signs in with Google can write their own
-// /users/{uid}/profile node (so the admin can see *everyone* who has
-// ever tried to open the app, by name/email, in the Firebase console).
-// But nobody can read or write their /users/{uid}/data node — their
-// actual earnings — until the admin manually sets
-// /users/{uid}/profile/approved to true for that account in the
-// console. There's no in-app admin panel yet; approving/blocking people
-// is done directly in the Firebase console's Realtime Database view.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   onAuthStateChanged,
   signOut as firebaseSignOut,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
@@ -59,6 +52,11 @@ const auth = getAuth(app);
 const db = getDatabase(app);
 const ADMIN_EMAIL = 'vlaskin.vladyslav@gmail.com';
 
+// Обробка повернення після редиректу на мобільних пристроях
+getRedirectResult(auth).catch((error) => {
+  console.error("Помилка повернення з авторизації:", error);
+});
+
 let currentUser = null;
 let approved = false;
 let bootstrapped = false; // has the one-time local<->cloud seed already run for this session?
@@ -81,10 +79,28 @@ onValue(ref(db, '.info/connected'), (snap) => {
   emit(currentStatus());
 });
 
+// Детектор мобільних пристроїв та PWA
+const isMobileOrPWA = () => {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || 
+         window.matchMedia('(display-mode: standalone)').matches;
+};
+
 // ---------- Auth ----------
 async function signIn() {
-  await signInWithPopup(auth, new GoogleAuthProvider());
+  try {
+    const provider = new GoogleAuthProvider();
+    if (isMobileOrPWA()) {
+      // На смартфонах та в PWA використовуємо редирект
+      await signInWithRedirect(auth, provider);
+    } else {
+      // На ПК використовуємо Popup
+      await signInWithPopup(auth, provider);
+    }
+  } catch (error) {
+    console.error("Помилка авторизації Google:", error);
+  }
 }
+
 async function signOutUser() {
   await firebaseSignOut(auth);
 }
@@ -92,52 +108,48 @@ async function signOutUser() {
 onAuthStateChanged(auth, async (user) => {
   currentUser = user;
   bootstrapped = false;
+  
   if (!user) {
     approved = false;
     emit(currentStatus());
     return;
   }
 
-  // Always allowed to write our own profile, regardless of approval —
-  // this is how the admin finds out someone new is trying to get in.
-  // Critically, 'approved' is never part of this write, not even to
-  // echo its current value: the security rules lock that one field to
-  // admin-only writes, and a field-level rule rejects the *entire*
-  // update if it touches a path the writer isn't allowed to touch —
-  // even when the value doesn't actually change. update() here only
-  // touches the fields a regular user is permitted to write.
+  const isAdmin = user.email === ADMIN_EMAIL;
+
   try {
     const profileRef = ref(db, 'users/' + user.uid + '/profile');
     const existing = await get(profileRef);
     const prior = existing.exists() ? existing.val() : {};
-    approved = prior.approved === true;
-    await update(profileRef, {
+
+    // Якщо адмін — одразу надаємо дозвіл. Якщо звичайний користувач — перевіряємо прапорець з бази.
+    approved = isAdmin ? true : (prior.approved === true);
+
+    const profilePayload = {
       name: user.displayName || '',
       email: user.email || '',
       firstSeen: prior.firstSeen || Date.now(),
       lastSeen: Date.now(),
-    });
+    };
+
+    // Лише адмін відправляє поле approved, щоб не порушувати правила безпеки Firebase
+    if (isAdmin) {
+      profilePayload.approved = true;
+    }
+
+    await update(profileRef, profilePayload);
   } catch (e) {
-    approved = false;
+    approved = isAdmin;
   }
 
   emit(currentStatus());
 
-  if (approved) await bootstrapSync();
-  
+  if (approved) {
+    await bootstrapSync();
+  }
 });
 
-// Completes the Google sign-in after the redirect bounces back here.
-//getRedirectResult(auth).catch(() => { /* no pending redirect, or it failed silently */ });
-
 // ---------- One-time bootstrap: reconcile local vs cloud on first sync ----------
-// Rule, kept deliberately simple: local history is never silently
-// discarded. If the cloud already has data for this account, pull it
-// down ONLY when the local device is empty (the exact "I reinstalled
-// the app" recovery scenario). Otherwise, whatever is already on this
-// device is treated as authoritative and gets pushed up as-is — so the
-// month of history already on everyone's phones is preserved, not
-// replaced by an empty cloud record.
 async function bootstrapSync() {
   if (bootstrapped || !window.AppBridge) return;
   bootstrapped = true;
@@ -161,22 +173,17 @@ async function bootstrapSync() {
 }
 
 // ---------- Push local -> cloud, called by script.js after every save ----------
-// Debounced slightly so rapid-fire local changes (e.g. typing) don't
-// spam the database with a write per keystroke.
 function pushLocalData() {
   if (!currentUser || !approved || !window.AppBridge) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     set(ref(db, 'users/' + currentUser.uid + '/data'), window.AppBridge.getLocalBundle()).catch(() => {
-      // offline — RTDB already queues this write internally and will
-      // resend it automatically once the connection returns.
+      // offline — RTDB queued write
     });
   }, 400);
 }
 
 // ---------- Manual "force sync" ----------
-// Nudges the SDK to drop and re-establish its connection, then re-sends
-// whatever is currently in local storage so nothing sits unsynced.
 function forceSync() {
   goOffline(db);
   setTimeout(() => {
