@@ -1,28 +1,12 @@
 // ShiftMe cloud sync — Firebase Realtime Database + Google sign-in.
-//
-// This file is a self-contained ES module, loaded separately from the
-// classic (non-module) script.js. That split is deliberate: script.js's
-// top-level `let`/`const` variables are NOT visible to a module by name,
-// so the two sides talk to each other only through two small, explicit
-// bridges on `window`:
-//
-//   window.AppBridge   — set up by script.js, read by this file.
-//                        Lets this module read/write the app's local
-//                        data (earnings, goals, products, leave days)
-//                        without needing to know how they're stored.
-//
-//   window.CloudSync   — set up by this file, read by script.js.
-//                        Lets the UI trigger sign-in/out, force a
-//                        reconnect, and react to connection/approval
-//                        status changes.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
   onAuthStateChanged,
   signOut as firebaseSignOut,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
@@ -52,53 +36,40 @@ const auth = getAuth(app);
 const db = getDatabase(app);
 const ADMIN_EMAIL = 'vlaskin.vladyslav@gmail.com';
 
-// Обробка повернення після редиректу на мобільних пристроях
-getRedirectResult(auth).catch((error) => {
-  console.error("Помилка повернення з авторизації:", error);
+// Фіксуємо сесію в локальному сховищі/IndexedDB для запобігання скиданню авторизації
+setPersistence(auth, browserLocalPersistence).catch((error) => {
+  console.error("Помилка налаштування persistence:", error);
 });
 
 let currentUser = null;
 let approved = false;
-let bootstrapped = false; // has the one-time local<->cloud seed already run for this session?
+let bootstrapped = false;
 let pushTimer = null;
 
-// ---------- Tiny event bus so script.js can react without polling ----------
+// ---------- Event Bus ----------
 function emit(status) {
   window.dispatchEvent(new CustomEvent('cloudsync:status', { detail: status }));
 }
+
 function currentStatus() {
   if (!currentUser) return { state: 'signed-out' };
   if (!approved) return { state: 'pending', name: currentUser.displayName, email: currentUser.email };
   return { state: connectionState, name: currentUser.displayName, email: currentUser.email };
 }
-let connectionState = 'connecting'; // 'connected' | 'offline' | 'connecting'
+let connectionState = 'connecting';
 
-// ---------- Connection indicator (.info/connected is a special RTDB path) ----------
+// ---------- Connection Indicator ----------
 onValue(ref(db, '.info/connected'), (snap) => {
   connectionState = snap.val() === true ? 'connected' : 'offline';
   emit(currentStatus());
 });
 
-// Детектор мобільних пристроїв та PWA
-const isMobileOrPWA = () => {
-  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || 
-         window.matchMedia('(display-mode: standalone)').matches;
-};
-
 // ---------- Auth ----------
-async function signIn() {
-  try {
-    const provider = new GoogleAuthProvider();
-    if (isMobileOrPWA()) {
-      // На смартфонах та в PWA використовуємо редирект
-      await signInWithRedirect(auth, provider);
-    } else {
-      // На ПК використовуємо Popup
-      await signInWithPopup(auth, provider);
-    }
-  } catch (error) {
+function signIn() {
+  const provider = new GoogleAuthProvider();
+  return signInWithPopup(auth, provider).catch((error) => {
     console.error("Помилка авторизації Google:", error);
-  }
+  });
 }
 
 async function signOutUser() {
@@ -106,18 +77,6 @@ async function signOutUser() {
 }
 
 onAuthStateChanged(auth, async (user) => {
-  // Якщо user ще null, спробуємо примусово зчитати результат редиректу для iOS Safari
-  if (!user) {
-    try {
-      const redirectResult = await getRedirectResult(auth);
-      if (redirectResult && redirectResult.user) {
-        user = redirectResult.user;
-      }
-    } catch (err) {
-      console.error("Помилка getRedirectResult:", err);
-    }
-  }
-
   currentUser = user;
   bootstrapped = false;
   
@@ -159,7 +118,7 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-// ---------- One-time bootstrap: reconcile local vs cloud on first sync ----------
+// ---------- Bootstrap Sync ----------
 async function bootstrapSync() {
   if (bootstrapped || !window.AppBridge) return;
   bootstrapped = true;
@@ -169,7 +128,7 @@ async function bootstrapSync() {
   try {
     cloudSnap = await get(dataRef);
   } catch (e) {
-    return; // offline or blocked — local keeps working as-is, will retry on next change
+    return;
   }
 
   const local = window.AppBridge.getLocalBundle();
@@ -182,18 +141,16 @@ async function bootstrapSync() {
   }
 }
 
-// ---------- Push local -> cloud, called by script.js after every save ----------
+// ---------- Push Data ----------
 function pushLocalData() {
   if (!currentUser || !approved || !window.AppBridge) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
-    set(ref(db, 'users/' + currentUser.uid + '/data'), window.AppBridge.getLocalBundle()).catch(() => {
-      // offline — RTDB queued write
-    });
+    set(ref(db, 'users/' + currentUser.uid + '/data'), window.AppBridge.getLocalBundle()).catch(() => {});
   }, 400);
 }
 
-// ---------- Manual "force sync" ----------
+// ---------- Force Sync ----------
 function forceSync() {
   goOffline(db);
   setTimeout(() => {
@@ -202,6 +159,7 @@ function forceSync() {
   }, 300);
 }
 
+// ---------- Export Bridge ----------
 window.CloudSync = {
   signIn,
   signOut: signOutUser,
