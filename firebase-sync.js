@@ -106,6 +106,18 @@ async function signOutUser() {
 }
 
 onAuthStateChanged(auth, async (user) => {
+  // Якщо user ще null, спробуємо примусово зчитати результат редиректу для iOS Safari
+  if (!user) {
+    try {
+      const redirectResult = await getRedirectResult(auth);
+      if (redirectResult && redirectResult.user) {
+        user = redirectResult.user;
+      }
+    } catch (err) {
+      console.error("Помилка getRedirectResult:", err);
+    }
+  }
+
   currentUser = user;
   bootstrapped = false;
   
@@ -122,7 +134,6 @@ onAuthStateChanged(auth, async (user) => {
     const existing = await get(profileRef);
     const prior = existing.exists() ? existing.val() : {};
 
-    // Якщо адмін — одразу надаємо дозвіл. Якщо звичайний користувач — перевіряємо прапорець з бази.
     approved = isAdmin ? true : (prior.approved === true);
 
     const profilePayload = {
@@ -132,7 +143,6 @@ onAuthStateChanged(auth, async (user) => {
       lastSeen: Date.now(),
     };
 
-    // Лише адмін відправляє поле approved, щоб не порушувати правила безпеки Firebase
     if (isAdmin) {
       profilePayload.approved = true;
     }
