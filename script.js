@@ -15,7 +15,7 @@ function getStatus(y, m, d) {
 
 const monthNames = ['січня','лютого','березня','квітня','травня','червня','липня','серпня','вересня','жовтня','листопада','грудня'];
 const monthNamesNom = ['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
-const weekdayNames = ['неділю','понеділок','вівторок','середу','четвер','пʼятницю','суботу'];
+const weekdayNames = ['неділя','понеділок','вівторок','середа','четвер','пʼятниця','субота'];
 
 const now = new Date();
 let viewYear = now.getFullYear();
@@ -787,7 +787,7 @@ function renderGoal() {
     return;
   }
 
-  document.getElementById('goalMonthName').textContent = monthNames[now.getMonth()];
+  document.getElementById('goalMonthName').textContent = monthNamesNom[now.getMonth()];
   document.getElementById('goalFill').classList.toggle('reached', plan.reached);
   requestAnimationFrame(() => {
     document.getElementById('goalFill').style.width = plan.progressPct + '%';
@@ -1308,6 +1308,7 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   initGoalCardListeners();
   initCoreProductTiles();
   initCloudSyncUI();
+  initAppNav();
 
   renderToday();
   renderGoal();
@@ -1418,6 +1419,46 @@ function initCloudSyncUI() {
   });
 }
 
+
+// ---------- Bottom nav + full-screen windows ----------
+// Три вікна ("Профіль" / "Налаштування" / "Топ") — постійні DOM-вузли,
+// які лише перемикають клас .open (див. CSS: opacity/transform, той
+// самий підхід, що й у .overlay для модалки дня). Повторний тап по вже
+// активній кнопці нав-бару закриває вікно назад на головний екран.
+function initAppNav() {
+  const buttons = document.querySelectorAll('.nav-btn[data-window]');
+  const windows = document.querySelectorAll('.app-window[data-window]');
+  if (!buttons.length || !windows.length) return;
+
+  let activeWindow = null;
+
+  function closeAllWindows() {
+    windows.forEach(w => w.classList.remove('open'));
+    buttons.forEach(b => b.classList.remove('active'));
+    activeWindow = null;
+  }
+
+  function openWindow(name) {
+    windows.forEach(w => w.classList.toggle('open', w.dataset.window === name));
+    buttons.forEach(b => b.classList.toggle('active', b.dataset.window === name));
+    activeWindow = name;
+  }
+
+  buttons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.window;
+      if (activeWindow === name) {
+        closeAllWindows();
+      } else {
+        openWindow(name);
+      }
+    });
+  });
+
+  document.querySelectorAll('.app-window [data-close-window]').forEach(btn => {
+    btn.addEventListener('click', closeAllWindows);
+  });
+}
 
 // ---------- Splash screen ----------
 // Shown instantly on load; hidden once init() above has run, with a small

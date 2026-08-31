@@ -167,17 +167,7 @@
     <div id="productStats"></div>
   </div>
 
-  <div class="cloud-sync-card" id="cloudSyncCard">
-    <div class="cloud-sync-row">
-      <span class="cloud-sync-dot" id="cloudSyncDot"></span>
-      <p class="cloud-sync-label" id="cloudSyncLabel">—</p>
-    </div>
-    <div class="cloud-sync-actions">
-      <button class="data-btn" id="cloudSignInBtn" type="button">Увійти через Google</button>
-      <button class="data-btn" id="cloudSignOutBtn" type="button">Вийти</button>
-      <button class="data-btn" id="cloudForceSyncBtn" type="button">🔄 Синхронізувати зараз</button>
-    </div>
-  </div>
+
 
   <div class="data-actions">
     <button class="data-btn" id="exportBtn" type="button">⭳ Експорт JSON</button>
@@ -255,6 +245,76 @@
     <p class="save-note" id="saveNote"></p>
   </div>
 </div>
+
+<!-- ---------- Full-screen windows ----------
+     Кожне вікно — окремий повноекранний шар, який ховається/показується
+     класом .open (opacity/transform), а не display:none — так само, як
+     .overlay вище — щоб анімація появи справді програвалась, а не
+     вікно просто "стрибало" на екран. -->
+<div class="app-window" id="windowAuth" data-window="auth">
+  <div class="app-window-inner">
+    <div class="app-window-head">
+      <p class="app-window-title">Профіль</p>
+      <button class="app-window-close" type="button" data-close-window>✕</button>
+    </div>
+
+    <div class="cloud-sync-card" id="cloudSyncCard">
+      <div class="cloud-sync-row">
+        <p class="cloud-sync-label" id="cloudSyncLabel">—</p>
+        <span class="cloud-sync-dot" id="cloudSyncDot"></span>
+      </div>
+      <div class="cloud-sync-actions">
+        <button class="data-btn" id="cloudSignInBtn" type="button">Увійти через Google</button>
+        <button class="data-btn" id="cloudSignOutBtn" type="button">Вийти</button>
+        <button class="data-btn" id="cloudForceSyncBtn" type="button">🔄 Синхронізувати зараз</button>
+      </div>
+      <div class="warning-banner">
+        <p class="coming-soon-sub"> Наразі ця функція перебуває в розробці </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="app-window" id="windowSettings" data-window="settings">
+  <div class="app-window-inner">
+    <div class="app-window-head">
+      <p class="app-window-title">Налаштування</p>
+      <button class="app-window-close" type="button" data-close-window>✕</button>
+    </div>
+    <p class="app-window-placeholder">Розділ у розробці</p>
+  </div>
+</div>
+
+<div class="app-window" id="windowTop" data-window="top">
+  <div class="app-window-inner">
+    <div class="app-window-head">
+      <p class="app-window-title">Топ працівників</p>
+      <button class="app-window-close" type="button" data-close-window>✕</button>
+    </div>
+    <p class="app-window-placeholder">Розділ у розробці</p>
+  </div>
+</div>
+
+<!-- ---------- Bottom navigation ----------
+     Закріплена position:fixed знизу, завжди видима, незалежно від того,
+     яке вікно (або жодне) зараз відкрите. Іконки поки що порожні
+     заглушки (.nav-icon) — постав власні зображення/SVG замість них
+     пізніше, наприклад через background-image в CSS-класі виду
+     .nav-icon-auth { background-image: url('iconAuth.png'); } -->
+<nav class="bottom-nav" id="bottomNav">
+  <button class="nav-btn" type="button" data-window="auth">
+    <span class="nav-icon"></span>
+    <span class="nav-label">Профіль</span>
+  </button>
+  <button class="nav-btn" type="button" data-window="settings">
+    <span class="nav-icon"></span>
+    <span class="nav-label">Налаштування</span>
+  </button>
+  <button class="nav-btn" type="button" data-window="top">
+    <span class="nav-icon"></span>
+    <span class="nav-label">Топ</span>
+  </button>
+</nav>
 
 <script src="script.js"></script>
 <script type="module" src="firebase-sync.js"></script>
