@@ -1642,6 +1642,13 @@ h1 span { color: var(--work); }
    iOS Safari) — підсвітка активної кнопки тримається на opacity/color/
    transform, без жодного box-shadow-transition. */
 
+/* Поки відкрите будь-яке вікно, body.nav-window-open блокує скрол
+   основної сторінки — сама вона нікуди не рухається. Кожне .app-window
+   скролиться незалежно (overflow-y: auto), а overscroll-behavior:
+   contain не дає докрутці до краю вмісту "провалитись" далі, в body
+   під вікном (типова проблема scroll chaining на iOS Safari). */
+body.nav-window-open { overflow: hidden; }
+
 .app-window {
   position: fixed;
   inset: 0;
@@ -1651,6 +1658,7 @@ h1 span { color: var(--work); }
     radial-gradient(circle at 15% 0%, rgba(255,140,66,0.07), transparent 40%),
     radial-gradient(circle at 85% 100%, rgba(67,198,172,0.06), transparent 40%);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: calc(20px + env(safe-area-inset-top)) 14px calc(88px + env(safe-area-inset-bottom));
   opacity: 0;
   visibility: hidden;

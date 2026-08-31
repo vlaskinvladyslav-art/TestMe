@@ -1435,12 +1435,14 @@ function initAppNav() {
   function closeAllWindows() {
     windows.forEach(w => w.classList.remove('open'));
     buttons.forEach(b => b.classList.remove('active'));
+    document.body.classList.remove('nav-window-open');
     activeWindow = null;
   }
 
   function openWindow(name) {
     windows.forEach(w => w.classList.toggle('open', w.dataset.window === name));
     buttons.forEach(b => b.classList.toggle('active', b.dataset.window === name));
+    document.body.classList.add('nav-window-open');
     activeWindow = name;
   }
 
