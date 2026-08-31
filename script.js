@@ -1447,13 +1447,28 @@ function initAppNav() {
   }
 
   buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
+    // touchend спрацьовує навіть тоді, коли цей самий дотик щойно
+    // зупинив інерційний скрол сторінки — на відміну від click, який
+    // браузер у такому разі просто не генерує (спрацював би лише на
+    // наступному тапі). preventDefault тут же гасить "справжній" click,
+    // що прийшов би слідом за touchend, щоб дія не викликалась двічі.
+    let handledByTouch = false;
+    function activate() {
       const name = btn.dataset.window;
       if (activeWindow === name) {
         closeAllWindows();
       } else {
         openWindow(name);
       }
+    }
+    btn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      handledByTouch = true;
+      activate();
+    }, { passive: false });
+    btn.addEventListener('click', () => {
+      if (handledByTouch) { handledByTouch = false; return; } // вже спрацювало по touchend
+      activate(); // мишка/десктоп без touch-подій
     });
   });
 
