@@ -11,6 +11,7 @@
   --off-dim: #1a3230;
   --today-ring: #f4c95d;
   --money: #f4c95d;
+  --danger: #ef5757;
 }
 
 * { box-sizing: border-box; }
@@ -91,17 +92,6 @@ html { touch-action: manipulation; }
   position: relative;
 }
 @keyframes splashCaptionIn { to { opacity: 1; } }
-
-.splash-version {
-  margin-top: 4px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: var(--line);
-  opacity: 0;
-  animation: splashCaptionIn 0.6s ease 0.5s forwards;
-  position: relative;
-}
 
 /* ---------- App entrance choreography ---------- */
 /* Uses `transition`, not `animation`, on purpose: `animation` is a single
@@ -1142,52 +1132,280 @@ h1 span { color: var(--work); }
   width: 100%;
 }
 
-/* ---------- Cloud sync status ---------- */
-.cloud-sync-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 14px 16px;
-  margin-bottom: 10px;
+/* ---------- Profile window ----------
+   Три стани: вхід (гарний екран з напівпрозорим анімованим фоном),
+   очікування підтвердження адміністратора, і повні налаштування після
+   схвалення. Індикатор з'єднання — той самий ripple-прийом, що й у
+   .goal-ripple (border+opacity, без анімації box-shadow напряму). */
+
+.profile-login {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  padding: 40px 20px 32px;
+  text-align: center;
+  isolation: isolate;
 }
-.cloud-sync-row {
+.profile-login-bg {
+  position: absolute;
+  inset: -25%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 25%, rgba(244, 201, 93, 0.35), transparent 50%),
+    radial-gradient(circle at 80% 75%, rgba(67, 198, 172, 0.30), transparent 50%);
+  filter: blur(40px);
+  -webkit-filter: blur(40px);
+  will-change: transform;
+  /* Пришвидшено до 8с для очевиднішого руху */
+  animation: profileBgDrift 8s ease-in-out infinite alternate;
+}
+@keyframes profileBgDrift {
+  0% { transform: translate3d(-16%, -9%, 0) scale(1) rotate(0deg); }
+  50% { transform: translate3d(7%, -6%, 0) scale(1.32) rotate(2deg); }
+  100% { transform: translate3d(16%, 9%, 0) scale(1.5) rotate(-9deg); }
+}
+.profile-login-content { position: relative; }
+.profile-login-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  font-size: 22px;
+  color: var(--muted);
+
+  /* Підготовка для GPU на iOS / Android */
+  will-change: transform, border-color, box-shadow;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+
+  /* Плавне паріння */
+  animation: cloudFloat 4.5s ease-in-out infinite;
 }
-.cloud-sync-dot {
-  width: 9px;
-  height: 9px;
+/* Окремо анімуємо сам символ хмарки всередині */
+.profile-login-icon span {
+  display: inline-block;
+  will-change: transform, opacity;
+  animation: cloudPulse 4.5s ease-in-out infinite;
+}
+@keyframes cloudFloat {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+    border-color: var(--line);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+  50% {
+    transform: translate3d(0, -4px, 0);
+    border-color: rgba(244, 201, 93, 0.4);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12),
+      0 0 12px rgba(244, 201, 93, 0.15);
+  }
+}
+/* Легке "дихання" самої хмарки */
+@keyframes cloudPulse {
+  0%, 100% { transform: scale(1); opacity: 0.75; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+.profile-login-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 17px;
+  margin-bottom: 8px;
+}
+.profile-login-sub {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 300px;
+  margin: 0 auto 24px;
+}
+.google-signin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease;
+}
+.google-signin-btn:active { transform: scale(0.97); background: var(--surface); }
+.google-signin-icon {
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: var(--muted);
-  box-shadow: 0 0 0 rgba(0,0,0,0);
-  transition: background 0.3s ease, box-shadow 0.3s ease;
+  background: conic-gradient(from 180deg, #ff8c42, #f4c95d, #43c6ac, #ff8c42);
+  /* Заглушка: заміни на офіційну іконку Google (SVG/PNG) */
 }
-.cloud-sync-dot.is-on {
-  background: var(--off);
-  box-shadow: 0 0 8px rgba(67, 198, 172, 0.6);
-  animation: cloudDotPulse 2.4s ease-in-out infinite;
+
+/* Індикатор з'єднання: колір задається класом is-green/is-orange/is-red
+   на .status-dot-wrap, а крапка й кільця беруть його через currentColor —
+   так усе (і статична крапка, і хвилі) міняє колір одним класом. */
+.status-dot-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
 }
-.cloud-sync-dot.is-off { background: var(--work); }
-.cloud-sync-dot.is-pending {
-  background: var(--money);
-  animation: cloudDotPulse 1.2s ease-in-out infinite;
+.status-dot-wrap.is-green { color: var(--off); }
+.status-dot-wrap.is-orange { color: var(--work); }
+.status-dot-wrap.is-red { color: var(--danger); }
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 10px currentColor;
+  position: relative;
+  z-index: 1;
 }
-@keyframes cloudDotPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+.status-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  opacity: 0;
+  animation: statusRippleExpand 2.4s ease-out infinite;
 }
-.cloud-sync-label {
+.status-ring:nth-child(2) { animation-delay: 0.8s; }
+.status-ring:nth-child(3) { animation-delay: 1.6s; }
+@keyframes statusRippleExpand {
+  0% { width: 10px; height: 10px; margin: -5px 0 0 -5px; opacity: 0.6; border-width: 1.5px; }
+  100% { width: 40px; height: 40px; margin: -20px 0 0 -20px; opacity: 0; border-width: 0.5px; }
+}
+
+.profile-status-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.profile-status-label { font-weight: 600; font-size: 13.5px; }
+.profile-status-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+.profile-pending-note {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+
+.profile-user-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.profile-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.profile-user-text { flex: 1; min-width: 0; }
+.profile-user-name-input {
+  display: block;
+  width: 100%;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  padding: 0 0 1px;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color 0.2s ease;
+}
+.profile-user-name-input:focus {
+  outline: none;
+  border-bottom-color: var(--line);
+}
+.profile-user-name-input::placeholder { color: var(--muted); font-weight: 500; }
+.profile-user-email {
   font-size: 11.5px;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-approved-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--off);
+  background: var(--off-dim);
+  padding: 4px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.profile-field-group {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.profile-field { display: block; margin-bottom: 10px; }
+.profile-field span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.profile-field input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+}
+.profile-field-note {
+  font-size: 10.5px;
+  color: var(--muted);
+  opacity: 0.75;
   line-height: 1.4;
+  margin-top: 2px;
 }
-.cloud-sync-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 20px;
-}
+
+.profile-actions { display: flex; gap: 10px; }
+.profile-actions .data-btn { flex: 1; }
 
 .warning-banner {
   padding: 12px 16px;
@@ -1229,8 +1447,6 @@ h1 span { color: var(--work); }
   }
 }
 
-.cloud-sync-actions .data-btn { flex: 1; }
-
 /* Data backup (export / import JSON) */
 .data-actions {
   display: flex;
@@ -1268,7 +1484,7 @@ h1 span { color: var(--work); }
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 50;
+  z-index: 70;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.25s ease, visibility 0.25s ease;
@@ -1467,6 +1683,27 @@ h1 span { color: var(--work); }
 .product-btn.active { border-color: var(--money); background: rgba(244,201,93,0.1); }
 .product-btn.active .rate { color: var(--money); }
 
+/* R&D — не звичайний виріб, а фіксований виняток (одноденна підмога на
+   іншому процесі), тому стоїть окремим рядком над рештою тайлів і має
+   інший акцентний колір, щоб його не сплутати зі звичайним виробом. */
+.product-btn.rnd-tile {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border-color: rgba(255,140,66,0.5);
+  background: rgba(255,140,66,0.08);
+}
+.product-btn.rnd-tile .code { font-size: 14px; }
+.product-btn.rnd-tile .rate { color: var(--work); }
+.product-btn.rnd-tile.active {
+  border-color: var(--work);
+  background: rgba(255,140,66,0.16);
+}
+.product-btn.rnd-tile.active .rate { color: var(--work); }
+
 .product-del {
   position: absolute;
   top: 4px;
@@ -1663,11 +1900,11 @@ body.nav-window-open { overflow: hidden; }
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transform: translateY(14px);
+  transform: translateY(110px);
   transition:
     opacity 0.3s cubic-bezier(0.22, 0.9, 0.32, 1),
-    transform 0.3s cubic-bezier(0.22, 0.9, 0.32, 1),
-    visibility 0.3s ease;
+    transform 0.4s cubic-bezier(0.22, 0.9, 0.32, 1),
+    visibility 0.6s ease;
 }
 .app-window.open {
   opacity: 1;
@@ -1721,13 +1958,23 @@ body.nav-window-open { overflow: hidden; }
   display: flex;
   justify-content: space-around;
   align-items: stretch;
-  gap: 4px;
+  gap: 2px;
   background: var(--surface);
   border-top: 1px solid var(--line);
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  padding: 5px 8px calc(5px + env(safe-area-inset-bottom));
   /* Без цього свайп по нав-бару прокручує сторінку під ним замість
      того, щоб просто натиснути кнопку. */
   touch-action: none;
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+}
+/* Поки відкрита модалка запису дня — нав-бар ховається, щоб не
+   перекривати кнопку "Додати запис" і не ловити випадкові тапи під
+   модалкою, що зʼїжджає знизу. */
+body.day-modal-open .bottom-nav {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(100%);
 }
 
 .nav-btn {
@@ -1736,14 +1983,14 @@ body.nav-window-open { overflow: hidden; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 6px 4px;
+  gap: 2px;
+  padding: 4px 4px;
   background: none;
   border: none;
-  border-radius: 12px;
+  border-radius: 10px;
   color: var(--muted);
   font-family: 'Inter', sans-serif;
-  font-size: 10.5px;
+  font-size: 9.5px;
   font-weight: 500;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -1755,21 +2002,230 @@ body.nav-window-open { overflow: hidden; }
 }
 
 .nav-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: currentColor;
-  opacity: 0.35;
-  transition: opacity 0.25s ease, transform 0.25s ease;
-  /* Заглушка під іконку: заміни span на <img class="nav-icon" src="...">
-     або постав background-image через власний клас — колір/розмір
-     контейнера вже готові, підсвітка активного стану працюватиме так само. */
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  filter: grayscale(1) opacity(0.55);
+  transition: filter 0.25s ease, transform 0.25s ease;
 }
 .nav-btn.active .nav-icon {
-  opacity: 1;
-  transform: scale(1.1);
+  filter: none;
+  transform: scale(1.08);
 }
 
 .nav-label {
   transition: color 0.25s ease;
+}
+
+/* ---------- Auth reminder (home screen) ----------
+   Не модальне, не блокує нічого — просто помітна смужка одразу під
+   заголовком, поки людина не авторизована. Ховається сама, щойно стан
+   cloudsync:status стає connected/offline/blocked (тобто вже є акаунт). */
+.auth-reminder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--work);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+.auth-reminder:active { transform: scale(0.99); background: var(--surface-2); }
+.auth-reminder-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--work);
+  flex-shrink: 0;
+}
+.auth-reminder-text {
+  flex: 1;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.auth-reminder-arrow {
+  flex-shrink: 0;
+  color: var(--work);
+  font-size: 14px;
+}
+
+/* ---------- Dev notice accordion (home screen "Процес розробки") ----------
+   Згорнутий стан показує лише заголовок + короткий тизер. Розкриття —
+   max-height transition на JS (бо в CSS немає auto-animate), а рядки
+   тексту всередині проявляються по черзі через transition-delay —
+   без жодної анімації box-shadow, тільки opacity/transform. */
+.dev-notice {
+  border: 1.5px dashed var(--line);
+  border-radius: 14px;
+  margin-top: 19px;
+  margin-bottom: 18px;
+  background:
+    repeating-linear-gradient(135deg, transparent, transparent 8px, rgba(255,255,255,0.015) 8px, rgba(255,255,255,0.015) 16px);
+  overflow: hidden;
+}
+.dev-notice-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: none;
+  padding: 16px;
+  text-align: left;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+}
+.dev-notice-head-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dev-notice-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--muted);
+}
+.dev-notice-teaser {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.65;
+}
+.dev-notice-chevron {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  padding-top: 2px;
+  transition: transform 0.3s cubic-bezier(0.22, 0.9, 0.32, 1);
+}
+.chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+}
+.dev-notice-chevron .chevron:nth-child(2) { margin-top: -4px; opacity: 0.55; }
+.dev-notice.open .dev-notice-chevron { transform: rotate(180deg); }
+
+.dev-notice-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.35s cubic-bezier(0.22, 0.9, 0.32, 1);
+}
+.dev-notice-body-inner {
+  padding: 0 16px 18px;
+}
+.dev-notice-line {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin-bottom: 8px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+.dev-notice-line:last-child { margin-bottom: 0; }
+.dev-notice.open .dev-notice-line { opacity: 1; transform: translateY(0); }
+.dev-notice.open .dev-notice-line:nth-child(1) { transition-delay: 0.05s; }
+.dev-notice.open .dev-notice-line:nth-child(2) { transition-delay: 0.12s; }
+.dev-notice.open .dev-notice-line:nth-child(3) { transition-delay: 0.19s; }
+.dev-notice.open .dev-notice-line:nth-child(4) { transition-delay: 0.26s; }
+.dev-notice-cta { color: var(--text); }
+.dev-notice-cta a {
+  color: var(--off);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---------- Settings: shift-config segmented toggles ---------- */
+.settings-group {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.settings-group-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.settings-field-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.settings-field-label:not(:first-of-type) { margin-top: 14px; }
+
+.segmented-toggle {
+  display: flex;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 3px;
+}
+.segmented-btn {
+  flex: 1;
+  padding: 9px 6px;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  color: var(--muted);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.segmented-btn.active {
+  background: var(--surface);
+  color: var(--money);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.settings-field-note {
+  font-size: 10.5px;
+  color: var(--muted);
+  opacity: 0.75;
+  line-height: 1.4;
+  margin-top: 14px;
+}
+
+/* ---------- Profile: read-only shift-info chips ---------- */
+.profile-shift-info {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.profile-shift-chip {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 9px 10px;
+  text-align: center;
+}
+.profile-shift-chip-label {
+  display: block;
+  font-size: 9.5px;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+.profile-shift-chip-value {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

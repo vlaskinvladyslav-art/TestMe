@@ -2,7 +2,43 @@
 // Reference: Aug 3, 2026 is day 0 of an off-block (3 off, then 3 work, repeating every 6 days).
 // The 6-day cycle is continuous, so it naturally extends backward too —
 // Aug 1–2, 2026 fall on the tail of the previous work-block and are correctly 'work' days.
+// This reference date always describes Бригада 1 — Бригада 2 is the exact
+// mirror of the same 6-day cycle (see getStatus below), never a second
+// hardcoded date, so the two stay perfectly in sync forever.
 const REF_OFF_START = Date.UTC(2026, 7, 3); // Aug 3 2026
+
+// ---------- Бригада / Тип зміни ----------
+// Ці два налаштування ніколи не торкаються самих записів заробітку
+// (shiftTrackerEarnings лишається прив'язаним лише до календарної дати) —
+// вони лише міняють, як дні розфарбовуються "робочий/вихідний" і яку дату
+// вважати "сьогодні". Тому перемикання туди-сюди нічого не губить: жоден
+// запис не видаляється і не переноситься, просто інакше читається той
+// самий календар.
+const SHIFT_CONFIG_KEY = 'shiftTrackerShiftConfig';
+function loadShiftConfig() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SHIFT_CONFIG_KEY) || '{}');
+    return {
+      brigade: raw.brigade === 2 ? 2 : 1,
+      shiftType: raw.shiftType === 'night' ? 'night' : 'day',
+    };
+  } catch (e) {
+    return { brigade: 1, shiftType: 'day' };
+  }
+}
+let shiftConfig = loadShiftConfig();
+
+function saveShiftConfig(next) {
+  shiftConfig = {
+    brigade: next.brigade === 2 ? 2 : 1,
+    shiftType: next.shiftType === 'night' ? 'night' : 'day',
+  };
+  try { localStorage.setItem(SHIFT_CONFIG_KEY, JSON.stringify(shiftConfig)); } catch (e) { /* сховище недоступне */ }
+  if (window.CloudSync && typeof window.CloudSync.updateShiftConfig === 'function') {
+    window.CloudSync.updateShiftConfig(shiftConfig);
+  }
+  window.dispatchEvent(new CustomEvent('shiftconfig:change', { detail: shiftConfig }));
+}
 
 function utcDay(y, m, d) { return Date.UTC(y, m, d); }
 
@@ -10,22 +46,43 @@ function getStatus(y, m, d) {
   const t = utcDay(y, m, d);
   const diffDays = Math.round((t - REF_OFF_START) / 86400000);
   const mod = ((diffDays % 6) + 6) % 6;
-  return mod < 3 ? 'off' : 'work';
+  const brigade1 = mod < 3 ? 'off' : 'work';
+  // Бригада 2 — дзеркальний графік відносно Бригади 1, той самий цикл.
+  return shiftConfig.brigade === 2 ? (brigade1 === 'work' ? 'off' : 'work') : brigade1;
+}
+
+// "Сьогодні" для нічної зміни — це календарна дата, коли зміна
+// РОЗПОЧАЛАСЬ (20:00), а не та, де вона закінчується о 08:00. Тобто до
+// 08:00 ранку "сьогодні" все ще вчорашня дата. Обчислюється щоразу
+// заново (а не один раз при завантаженні), інакше застосунок, залишений
+// відкритим на фоні через зміну, "застрягне" на вчорашньому дні.
+function getEffectiveNow() {
+  const raw = new Date();
+  if (shiftConfig.shiftType === 'night' && raw.getHours() < 8) {
+    return new Date(raw.getTime() - 86400000);
+  }
+  return raw;
 }
 
 const monthNames = ['січня','лютого','березня','квітня','травня','червня','липня','серпня','вересня','жовтня','листопада','грудня'];
 const monthNamesNom = ['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
 const weekdayNames = ['неділя','понеділок','вівторок','середа','четвер','пʼятниця','субота'];
 
-const now = new Date();
-let viewYear = now.getFullYear();
-let viewMonth = now.getMonth();
+let viewYear = getEffectiveNow().getFullYear();
+let viewMonth = getEffectiveNow().getMonth();
 
 // ---------- Earnings logic ----------
 const CORE_PRODUCTS = [
   { code: '3115', rate: 7.47 },
   { code: '4320', rate: 14.21 }
 ];
+
+// R&D: не "виріб" процесу, а фіксований виняток — одноденне переміщення
+// людини на інший процес для підмоги. Рахується по годинах (не шт) і
+// буде присутній однаково для всіх процесів, які додамо пізніше.
+const RND_PRODUCT = { code: 'R&D', rate: 210 };
+function isHourlyCode(code) { return code === RND_PRODUCT.code; }
+function unitFor(code) { return isHourlyCode(code) ? 'год' : 'шт'; }
 
 const STORAGE_KEY = 'shiftTrackerEarnings';
 
@@ -66,7 +123,7 @@ function deleteCustomProduct(code) {
   saveCustomProducts();
   if (selectedProduct === code) selectedProduct = CORE_PRODUCTS[0].code;
 }
-function allProducts() { return CORE_PRODUCTS.concat(customProducts); }
+function allProducts() { return [RND_PRODUCT].concat(CORE_PRODUCTS, customProducts); }
 function findProduct(code) { return allProducts().find(p => p.code === code); }
 
 // ---------- Unpaid leave days ("вихідний за свій рахунок") ----------
@@ -237,7 +294,7 @@ function exportData() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'earnings-' + dateKey(now.getFullYear(), now.getMonth(), now.getDate()) + '.json';
+  a.download = 'earnings-' + dateKey(getEffectiveNow().getFullYear(), getEffectiveNow().getMonth(), getEffectiveNow().getDate()) + '.json';
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -270,9 +327,9 @@ function importDataFromFile(file) {
 }
 
 function renderToday() {
-  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+  const y = getEffectiveNow().getFullYear(), m = getEffectiveNow().getMonth(), d = getEffectiveNow().getDate();
   document.getElementById('todayDate').textContent =
-    d + ' ' + monthNames[m] + ', ' + weekdayNames[now.getDay()];
+    d + ' ' + monthNames[m] + ', ' + weekdayNames[getEffectiveNow().getDay()];
 
   const status = getStatus(y, m, d);
   const card = document.getElementById('statusCard');
@@ -337,7 +394,7 @@ function renderToday() {
 function renderTodayEntries() {
   const section = document.getElementById('todayEntriesSection');
   const wrap = document.getElementById('todayEntriesList');
-  const todayKey = dateKey(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayKey = dateKey(getEffectiveNow().getFullYear(), getEffectiveNow().getMonth(), getEffectiveNow().getDate());
   const entries = earningsData[todayKey] || [];
 
   if (entries.length === 0) {
@@ -354,7 +411,7 @@ function renderTodayEntries() {
   wrap.innerHTML = withIdx.map(({ e, idx }) =>
     '<div class="today-entry-row' + (e.deleted ? ' phantom' : '') + '" data-idx="' + idx + '">' +
       '<span class="today-entry-code">' + e.code + '</span>' +
-      '<span>' + e.qty + ' шт</span>' +
+      '<span>' + e.qty + ' ' + unitFor(e.code) + '</span>' +
       (e.order ? '<span class="today-entry-order">№' + e.order + '</span>' : '') +
       (fmtTime(e.time) ? '<span class="today-entry-time">' + fmtTime(e.time) + '</span>' : '') +
       '<span class="today-entry-amount">' + fmtMoney(e.amount) + '</span>' +
@@ -365,7 +422,7 @@ function renderTodayEntries() {
   wrap.querySelectorAll('.today-entry-row').forEach(row => {
     row.addEventListener('click', (ev) => {
       if (ev.target.closest('.today-entry-restore')) return; // handled separately below
-      openModal(now.getFullYear(), now.getMonth(), now.getDate());
+      openModal(getEffectiveNow().getFullYear(), getEffectiveNow().getMonth(), getEffectiveNow().getDate());
     });
   });
 
@@ -415,7 +472,7 @@ function renderCalendar() {
     const cell = document.createElement('button');
     cell.type = 'button';
     cell.className = 'day-cell ' + s + (leave ? ' leave' : '');
-    const isToday = viewYear === now.getFullYear() && viewMonth === now.getMonth() && day === now.getDate();
+    const isToday = viewYear === getEffectiveNow().getFullYear() && viewMonth === getEffectiveNow().getMonth() && day === getEffectiveNow().getDate();
     if (isToday) cell.classList.add('today');
 
     let inner = day;
@@ -473,7 +530,7 @@ function last14Days() {
   // Returns [{key, date, total}] for the 14-day window ending today.
   const days = [];
   for (let i = 13; i >= 0; i--) {
-    const dt = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dt = new Date(getEffectiveNow().getFullYear(), getEffectiveNow().getMonth(), getEffectiveNow().getDate());
     dt.setDate(dt.getDate() - i);
     const key = dateKey(dt.getFullYear(), dt.getMonth(), dt.getDate());
     days.push({ key, date: dt, total: dayTotal(key) });
@@ -488,7 +545,7 @@ function last14Days() {
 // skipped, so the chart reflects actual shifts worked, not schedule gaps.
 function last14WorkDays() {
   const days = [];
-  const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const cursor = new Date(getEffectiveNow().getFullYear(), getEffectiveNow().getMonth(), getEffectiveNow().getDate());
   let guard = 0;
   while (days.length < 14 && guard < 120) {
     const y = cursor.getFullYear(), m = cursor.getMonth(), d = cursor.getDate();
@@ -546,7 +603,7 @@ function renderChart(days) {
 
   let dots = '';
   let labels = '';
-  const todayKeyStr = dateKey(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayKeyStr = dateKey(getEffectiveNow().getFullYear(), getEffectiveNow().getMonth(), getEffectiveNow().getDate());
   days.forEach((d, i) => {
     const x = xAt(i), y = yAt(d.total);
     const isToday = d.key === todayKeyStr;
@@ -621,7 +678,7 @@ function productStatRowHtml(t) {
     '<div class="product-stat-row">' +
       '<div class="product-stat-top">' +
         '<span class="code">' + t.code + '</span>' +
-        '<span class="qty">' + t.qty.toLocaleString('uk-UA') + ' шт</span>' +
+        '<span class="qty">' + t.qty.toLocaleString('uk-UA') + ' ' + unitFor(t.code) + '</span>' +
         '<span class="amt">' + fmtMoney(t.amount) + '</span>' +
       '</div>' +
       '<div class="product-bar-track"><div class="product-bar-fill" style="width:' + pct + '%"></div></div>' +
@@ -699,7 +756,7 @@ function saveGoals() {
     return false;
   }
 }
-function currentMonthKey() { return now.getFullYear() + '-' + pad(now.getMonth() + 1); }
+function currentMonthKey() { return getEffectiveNow().getFullYear() + '-' + pad(getEffectiveNow().getMonth() + 1); }
 
 function countWorkDaysInMonth(y, m) {
   const days = new Date(y, m + 1, 0).getDate();
@@ -722,7 +779,7 @@ function computeGoalPlan() {
   const goal = goalsData[mk];
   if (!(goal > 0)) return null;
 
-  const y = now.getFullYear(), m = now.getMonth(), today = now.getDate();
+  const y = getEffectiveNow().getFullYear(), m = getEffectiveNow().getMonth(), today = getEffectiveNow().getDate();
   const daysInMonth = new Date(y, m + 1, 0).getDate();
   const totalWorkDays = countWorkDaysInMonth(y, m);
   const earned = monthEarnedSoFar(y, m); // whole month, including today — used for the overall progress bar
@@ -780,14 +837,14 @@ function renderGoal() {
     card.dataset.state = plan ? 'editing' : 'setup';
     document.getElementById('goalSetupIcon').style.display = plan ? 'none' : '';
     document.getElementById('goalSetupTitle').textContent = plan
-      ? 'Змінити ціль на ' + monthNames[now.getMonth()]
+      ? 'Змінити ціль на ' + monthNames[getEffectiveNow().getMonth()]
       : 'Встанови ціль на місяць';
     document.getElementById('goalSetupSub').style.display = plan ? 'none' : '';
     document.getElementById('goalInput').value = plan ? plan.goal : '';
     return;
   }
 
-  document.getElementById('goalMonthName').textContent = monthNamesNom[now.getMonth()];
+  document.getElementById('goalMonthName').textContent = monthNamesNom[getEffectiveNow().getMonth()];
   document.getElementById('goalFill').classList.toggle('reached', plan.reached);
   requestAnimationFrame(() => {
     document.getElementById('goalFill').style.width = plan.progressPct + '%';
@@ -944,6 +1001,13 @@ function productTile(p) {
 // Sets the two fixed built-in tiles' text once at startup and wires their
 // click handlers — they never get torn down or rebuilt after this.
 function initCoreProductTiles() {
+  const rndTile = document.getElementById('rndTile');
+  if (rndTile) {
+    document.getElementById('rndTileRate').textContent = RND_PRODUCT.rate.toFixed(2) + ' ₴/год';
+    rndTile.dataset.code = RND_PRODUCT.code;
+    rndTile.addEventListener('click', () => { selectedProduct = RND_PRODUCT.code; updateProductSelection(); updatePreview(); });
+  }
+
   const tileIds = ['coreTile0', 'coreTile1'];
   CORE_PRODUCTS.forEach((p, i) => {
     const tile = document.getElementById(tileIds[i]);
@@ -1030,9 +1094,14 @@ function updatePreview() {
   const product = findProduct(selectedProduct);
   const preview = document.getElementById('previewLine');
   const submitBtn = document.getElementById('submitEntry');
+  const qtyLabel = document.getElementById('qtyLabel');
+  const qtyInput = document.getElementById('qtyInput');
+  const hourly = !!product && isHourlyCode(product.code);
+  if (qtyLabel) qtyLabel.textContent = hourly ? 'Кількість годин' : 'Кількість, шт';
+  if (qtyInput) qtyInput.placeholder = hourly ? 'напр. 8' : 'напр. 173';
   if (qty > 0 && product) {
     const amount = qty * product.rate;
-    preview.innerHTML = qty + ' шт × ' + product.rate.toFixed(2) + ' ₴ = <b>' + fmtMoney(amount) + '</b>';
+    preview.innerHTML = qty + ' ' + unitFor(product.code) + ' × ' + product.rate.toFixed(2) + ' ₴ = <b>' + fmtMoney(amount) + '</b>';
     submitBtn.disabled = false;
   } else {
     preview.textContent = '';
@@ -1076,7 +1145,7 @@ function renderDayProductSummary() {
     const g = groups[gKey];
     return (
       '<div class="day-summary-row">' +
-        '<span class="day-summary-qty"><b>' + g.qty + '</b> шт</span>' +
+        '<span class="day-summary-qty"><b>' + g.qty + '</b> ' + unitFor(g.code) + '</span>' +
         '<span class="day-summary-code">' + g.code + '</span>' +
         (g.order
           ? '<span class="day-summary-order">Зам. №' + g.order + '</span>'
@@ -1086,7 +1155,7 @@ function renderDayProductSummary() {
   }).join('');
 
   const totalsHtml = codeOrder.map(code =>
-    '<span class="day-summary-chip"><b>' + codeTotals[code] + '</b> шт · ' + code + '</span>'
+    '<span class="day-summary-chip"><b>' + codeTotals[code] + '</b> ' + unitFor(code) + ' · ' + code + '</span>'
   ).join('');
 
   wrap.innerHTML =
@@ -1108,7 +1177,7 @@ function renderEntryList() {
       row.className = 'entry-row' + (e.deleted ? ' phantom' : '');
       const remainingMs = e.deleted ? Math.max(0, PURGE_DELAY_MS - (Date.now() - (e.deletedAt || 0))) : 0;
       row.innerHTML =
-        '<div class="entry-info"><b>' + e.code + '</b><span> · ' + e.qty + ' шт</span><span class="entry-rate">' + (e.order ? 'Зам. №' + e.order + ' · ' : '') + e.rate.toFixed(2) + ' ₴/шт</span></div>' +
+        '<div class="entry-info"><b>' + e.code + '</b><span> · ' + e.qty + ' ' + unitFor(e.code) + '</span><span class="entry-rate">' + (e.order ? 'Зам. №' + e.order + ' · ' : '') + e.rate.toFixed(2) + ' ₴/' + unitFor(e.code) + '</span></div>' +
         '<div class="entry-row-right">' +
           (fmtTime(e.time) ? '<span class="entry-time">' + fmtTime(e.time) + '</span>' : '') +
           '<div class="entry-row-bottom"><span class="entry-amount">' + fmtMoney(e.amount) + '</span>' +
@@ -1192,6 +1261,7 @@ function openModal(y, m, d) {
   updatePreview();
   renderEntryList();
   document.getElementById('overlay').classList.add('open');
+  document.body.classList.add('day-modal-open');
 }
 
 // Shows/labels the "вихідний за свій рахунок" toggle — only relevant on
@@ -1237,6 +1307,7 @@ document.getElementById('leaveToggleBtn').addEventListener('click', () => {
 
 function closeModal() {
   document.getElementById('overlay').classList.remove('open');
+  document.body.classList.remove('day-modal-open');
 }
 
 document.getElementById('modalClose').addEventListener('click', closeModal);
@@ -1271,7 +1342,7 @@ document.getElementById('submitEntry').addEventListener('click', () => {
 });
 
 document.getElementById('addEarnToday').addEventListener('click', () => {
-  openModal(now.getFullYear(), now.getMonth(), now.getDate());
+  openModal(getEffectiveNow().getFullYear(), getEffectiveNow().getMonth(), getEffectiveNow().getDate());
 });
 
 document.getElementById('prevMonth').addEventListener('click', () => {
@@ -1309,6 +1380,9 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   initCoreProductTiles();
   initCloudSyncUI();
   initAppNav();
+  initDevNoticeAccordion();
+  initAuthReminder();
+  initShiftSettings();
 
   renderToday();
   renderGoal();
@@ -1348,56 +1422,85 @@ window.AppBridge = {
     renderCalendar();
     renderStats();
   },
+  // Викликається firebase-sync.js лише коли на ЦЬОМУ пристрої ще немає
+  // власного shiftTrackerShiftConfig (перший вхід) — щоб не затерти
+  // налаштування, які людина вже свідомо обрала тут.
+  hasLocalShiftConfig() {
+    try { return localStorage.getItem(SHIFT_CONFIG_KEY) !== null; } catch (e) { return false; }
+  },
+  applyCloudShiftConfig(cfg) {
+    if (!cfg) return;
+    saveShiftConfig({ brigade: cfg.brigade, shiftType: cfg.shiftType });
+  },
 };
 
-// ---------- Cloud sync status UI ----------
+// ---------- Cloud sync / profile UI ----------
 // firebase-sync.js dispatches a 'cloudsync:status' window event whenever
-// sign-in state, admin approval, or the live connection to the database
-// changes. This just reflects that into the small status card — it
+// sign-in state, admin approval, live DB connection, or the last sync
+// time changes. This just reflects that into the profile window — it
 // never talks to Firebase directly.
 function initCloudSyncUI() {
-  const card = document.getElementById('cloudSyncCard');
-  if (!card) return;
+  const loginBox = document.getElementById('profileLogin');
+  const pendingBox = document.getElementById('profilePending');
+  const fullBox = document.getElementById('profileFull');
+  if (!loginBox || !pendingBox || !fullBox) return;
 
-  const dot = document.getElementById('cloudSyncDot');
-  const label = document.getElementById('cloudSyncLabel');
+  const pendingDotWrap = document.getElementById('pendingDotWrap');
+  const fullDotWrap = document.getElementById('fullDotWrap');
+  const pendingEmail = document.getElementById('pendingEmail');
+  const cloudSyncLabel = document.getElementById('cloudSyncLabel');
+  const cloudSyncTime = document.getElementById('cloudSyncTime');
+  const nameInput = document.getElementById('profileUserNameInput');
+  const userEmail = document.getElementById('profileUserEmail');
+
   const signInBtn = document.getElementById('cloudSignInBtn');
+  const signOutBtnPending = document.getElementById('cloudSignOutBtnPending');
   const signOutBtn = document.getElementById('cloudSignOutBtn');
   const forceSyncBtn = document.getElementById('cloudForceSyncBtn');
 
+  function setDotState(wrapEl, state) {
+    wrapEl.className = 'status-dot-wrap';
+    if (state === 'connected') wrapEl.classList.add('is-green');
+    else if (state === 'offline' || state === 'blocked') wrapEl.classList.add('is-red');
+    else wrapEl.classList.add('is-orange'); // connecting
+  }
+
+  function formatSyncTime(ts) {
+    if (!ts) return 'Ще не синхронізовано';
+    const d = new Date(ts);
+    const sameDay = d.toDateString() === new Date().toDateString();
+    const time = d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+    return 'Синхронізовано: ' + (sameDay ? ('сьогодні о ' + time) : (d.toLocaleDateString('uk-UA') + ' о ' + time));
+  }
+
   function render(status) {
-    dot.className = 'cloud-sync-dot';
-    signInBtn.style.display = 'none';
-    signOutBtn.style.display = 'none';
-    forceSyncBtn.style.display = 'none';
+    loginBox.style.display = 'none';
+    pendingBox.style.display = 'none';
+    fullBox.style.display = 'none';
 
     if (status.state === 'signed-out') {
-      dot.classList.add('is-off');
-      label.textContent = 'Увійдіть до акаунту, щоб синхронізувати зписи із хмарою';
-      signInBtn.style.display = '';
-    } else if (status.state === 'pending') {
-      dot.classList.add('is-pending');
-      label.textContent = 'Очікує підтвердження адміністратора (' + (status.email || '') + ')';
-      signOutBtn.style.display = '';
-    } else if (status.state === 'connected') {
-      dot.classList.add('is-on');
-      label.textContent = 'Синхронізовано · ' + (status.name || status.email || '');
-      signOutBtn.style.display = '';
-      forceSyncBtn.style.display = '';
+      loginBox.style.display = '';
+    } else if (status.state === 'blocked') {
+      pendingBox.style.display = '';
+      setDotState(pendingDotWrap, 'blocked');
+      pendingEmail.textContent = status.email || '';
     } else {
-      dot.classList.add('is-off');
-      label.textContent = 'Немає з’єднання з базою — записи чекають локально';
-      signOutBtn.style.display = '';
-      forceSyncBtn.style.display = '';
+      fullBox.style.display = '';
+      setDotState(fullDotWrap, status.state); // connecting / connected / offline
+      if (status.state === 'connected') cloudSyncLabel.textContent = 'З’єднано з базою';
+      else if (status.state === 'offline') cloudSyncLabel.textContent = 'Немає з’єднання — записи чекають локально';
+      else cloudSyncLabel.textContent = 'З’єднання…';
+      cloudSyncTime.textContent = formatSyncTime(status.lastSyncedAt);
+      if (document.activeElement !== nameInput) nameInput.value = status.name || '';
+      userEmail.textContent = status.email || '—';
     }
   }
 
   window.addEventListener('cloudsync:status', (e) => render(e.detail));
-  
+
   if (window.CloudSync) render(window.CloudSync.getStatus());
   else render({ state: 'signed-out' });
 
-  // Оновлені безпечні обробники кліків:
   signInBtn.addEventListener('click', () => {
     if (window.CloudSync && typeof window.CloudSync.signIn === 'function') {
       window.CloudSync.signIn();
@@ -1406,10 +1509,12 @@ function initCloudSyncUI() {
     }
   });
 
-  signOutBtn.addEventListener('click', () => {
-    if (window.CloudSync && typeof window.CloudSync.signOut === 'function') {
-      window.CloudSync.signOut();
-    }
+  [signOutBtnPending, signOutBtn].forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (window.CloudSync && typeof window.CloudSync.signOut === 'function') {
+        window.CloudSync.signOut();
+      }
+    });
   });
 
   forceSyncBtn.addEventListener('click', () => {
@@ -1417,6 +1522,42 @@ function initCloudSyncUI() {
       window.CloudSync.forceSync();
     }
   });
+
+  if (nameInput) {
+    nameInput.addEventListener('change', () => {
+      const trimmed = nameInput.value.trim();
+      if (!trimmed) { nameInput.value = ''; return; } // порожнє ім'я не зберігаємо
+      if (window.CloudSync && typeof window.CloudSync.updateDisplayName === 'function') {
+        window.CloudSync.updateDisplayName(trimmed).catch(() => {});
+      }
+    });
+    nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') nameInput.blur(); // тригерить 'change' і закриває клавіатуру
+    });
+  }
+
+  // "Лінія роботи" / "Процес" — поки що суто локальні поля (окрема
+  // заготовка під майбутні публічні профілі), не йдуть у Firebase.
+  const lineInput = document.getElementById('profileLineInput');
+  const processInput = document.getElementById('profileProcessInput');
+  const META_KEY = 'shiftTrackerProfileMeta';
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(META_KEY) || '{}');
+    if (lineInput) lineInput.value = saved.line || '';
+    if (processInput) processInput.value = saved.process || '';
+  } catch (e) { /* ігноруємо биту локальну сесію */ }
+
+  function saveProfileMeta() {
+    try {
+      localStorage.setItem(META_KEY, JSON.stringify({
+        line: lineInput.value.trim(),
+        process: processInput.value.trim(),
+      }));
+    } catch (e) { /* локальне сховище недоступне — просто нічого не зберігаємо */ }
+  }
+  if (lineInput) lineInput.addEventListener('change', saveProfileMeta);
+  if (processInput) processInput.addEventListener('change', saveProfileMeta);
 }
 
 
@@ -1474,6 +1615,122 @@ function initAppNav() {
 
   document.querySelectorAll('.app-window [data-close-window]').forEach(btn => {
     btn.addEventListener('click', closeAllWindows);
+  });
+}
+
+// ---------- Shift settings (Бригада / Тип зміни) ----------
+// Джерело правди — shiftConfig (script.js, синхронізовано з Firebase
+// через CloudSync.updateShiftConfig). Ця функція лише малює поточний
+// стан у двох місцях (Налаштування — перемикачі, Профіль — read-only
+// чіпи) і слухає зміни, щоб обидва місця й сам календар лишались
+// синхронними, звідки б зміна не прийшла (клік тут, чи підтягнута
+// конфігурація з хмари при вході).
+function initShiftSettings() {
+  const brigadeToggle = document.getElementById('brigadeToggle');
+  const shiftTypeToggle = document.getElementById('shiftTypeToggle');
+  const chipProcess = document.getElementById('profileShiftProcess');
+  const chipBrigade = document.getElementById('profileShiftBrigade');
+  const chipType = document.getElementById('profileShiftType');
+  const processInput = document.getElementById('profileProcessInput');
+  if (!brigadeToggle || !shiftTypeToggle) return;
+
+  function paintToggle(toggleEl, value) {
+    toggleEl.querySelectorAll('.segmented-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.value === String(value));
+    });
+  }
+
+  function paintChips() {
+    if (chipBrigade) chipBrigade.textContent = shiftConfig.brigade === 2 ? '2 зміна' : '1 зміна';
+    if (chipType) chipType.textContent = shiftConfig.shiftType === 'night' ? 'Нічна зміна' : 'Денна зміна';
+    if (chipProcess) chipProcess.textContent = (processInput && processInput.value.trim()) || '—';
+  }
+
+  function render() {
+    paintToggle(brigadeToggle, shiftConfig.brigade);
+    paintToggle(shiftTypeToggle, shiftConfig.shiftType);
+    paintChips();
+  }
+
+  render();
+
+  brigadeToggle.querySelectorAll('.segmented-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const brigade = btn.dataset.value === '2' ? 2 : 1;
+      if (brigade === shiftConfig.brigade) return;
+      saveShiftConfig({ brigade: brigade, shiftType: shiftConfig.shiftType });
+    });
+  });
+  shiftTypeToggle.querySelectorAll('.segmented-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const shiftType = btn.dataset.value === 'night' ? 'night' : 'day';
+      if (shiftType === shiftConfig.shiftType) return;
+      saveShiftConfig({ brigade: shiftConfig.brigade, shiftType: shiftType });
+    });
+  });
+
+  // "Процес" у профілі так само лише дзеркалиться в чіп — сам вхідний
+  // текст лишається редагованим тільки нижче, в profileProcessInput.
+  if (processInput) processInput.addEventListener('input', paintChips);
+
+  window.addEventListener('shiftconfig:change', () => {
+    render();
+    renderCalendar();
+    renderToday();
+    renderStats();
+    renderGoal();
+  });
+}
+
+// ---------- Dev notice accordion ----------
+// max-height iде через JS (CSS max-height:none не анімується), а
+// рядки тексту всередині проявляються самі через CSS transition-delay
+// (див. .dev-notice-line в style.css) — тут лише перемикання класу.
+function initDevNoticeAccordion() {
+  const notice = document.getElementById('devNotice');
+  const toggle = document.getElementById('devNoticeToggle');
+  const body = document.getElementById('devNoticeBody');
+  if (!notice || !toggle || !body) return;
+
+  function open() {
+    notice.classList.add('open');
+    toggle.setAttribute('aria-expanded', 'true');
+    body.style.maxHeight = body.scrollHeight + 'px';
+  }
+  function close() {
+    notice.classList.remove('open');
+    toggle.setAttribute('aria-expanded', 'false');
+    body.style.maxHeight = '0px';
+  }
+
+  toggle.addEventListener('click', () => {
+    if (notice.classList.contains('open')) close();
+    else open();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (notice.classList.contains('open') && !notice.contains(e.target)) close();
+  });
+}
+
+// ---------- Auth reminder (home screen) ----------
+// Показується, поки немає підтвердженого cloud-аккаунту (signed-out або
+// blocked) — ховається сама, щойно з'являється звʼязок із хмарою.
+function initAuthReminder() {
+  const reminder = document.getElementById('authReminder');
+  if (!reminder) return;
+
+  function render(status) {
+    const show = !status || status.state === 'signed-out' || status.state === 'blocked';
+    reminder.style.display = show ? '' : 'none';
+  }
+
+  window.addEventListener('cloudsync:status', (e) => render(e.detail));
+  render(window.CloudSync ? window.CloudSync.getStatus() : { state: 'signed-out' });
+
+  reminder.addEventListener('click', () => {
+    const authBtn = document.querySelector('.nav-btn[data-window="auth"]');
+    if (authBtn) authBtn.click();
   });
 }
 

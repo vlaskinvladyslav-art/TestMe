@@ -27,7 +27,6 @@
     <span></span><span></span><span></span><span></span><span></span>
   </div>
   <p class="splash-caption">ShiftMe</p>
-  <p class="splash-version">v0.2.1 alpha</p>
 </div>
 
 <div class="wrap" id="appWrap">
@@ -35,6 +34,15 @@
     <h1>Shift<span>Me</span></h1>
     <p class="today-date" id="todayDate"></p>
   </header>
+
+  <!-- Ненав'язливе нагадування для тих, хто ще не авторизувався: помітне,
+       але не модальне — не заважає одразу почати записувати. Показується/
+       ховається через initAuthReminder() залежно від cloudsync:status. -->
+  <button class="auth-reminder" id="authReminder" type="button" style="display:none;">
+    <span class="auth-reminder-dot" aria-hidden="true"></span>
+    <span class="auth-reminder-text">Записи поки зберігаються лише на цьому пристрої — авторизуйтесь через Google, щоб не втратити їх</span>
+    <span class="auth-reminder-arrow" aria-hidden="true">→</span>
+  </button>
 
   <div class="cycle-strip" id="cycleStrip"></div>
 
@@ -131,9 +139,25 @@
     <div class="legend-item"><span class="legend-swatch leave"></span><span>За свій рахунок</span></div>
   </div>
 
-  <div class="coming-soon-banner">
-    <p class="coming-soon-title">Процес розробки</p>
-    <p class="coming-soon-sub">Застосунок перебуває у активній розробці. Не забувайте створювати резервні копії для збереження записів</p>
+  <div class="dev-notice" id="devNotice">
+    <button class="dev-notice-head" id="devNoticeToggle" type="button" aria-expanded="false" aria-controls="devNoticeBody">
+      <span class="dev-notice-head-text">
+        <span class="dev-notice-title">Процес розробки</span>
+        <span class="dev-notice-teaser">Торкніться, щоб дізнатись більше</span>
+      </span>
+      <span class="dev-notice-chevron" aria-hidden="true">
+        <span class="chevron"></span>
+        <span class="chevron"></span>
+      </span>
+    </button>
+    <div class="dev-notice-body" id="devNoticeBody">
+      <div class="dev-notice-body-inner">
+        <p class="dev-notice-line">Застосунок перебуває в активній розробці і постійно додається новий функціонал.</p>
+        <p class="dev-notice-line">Через це окремі можливості можуть працювати нестабільно — дякуємо за розуміння!</p>
+        <p class="dev-notice-line dev-notice-cta">Хочете вплинути на розвиток проєкту? Переходьте в наш <a href="https://t.me/+osEJ4fUs8AZhMTUy" target="_blank" rel="noopener noreferrer">Telegram-чат</a>.</p>
+        <p class="dev-notice-line">Діліться відгуками, а також пропонуйте власні фічі.</p>
+      </div>
+    </div>
   </div>
 
   <p class="section-title">Статистика</p>
@@ -205,6 +229,9 @@
 
     <p class="form-label">Виріб</p>
     <div class="product-choice" id="productChoice">
+      <div class="product-btn rnd-tile" id="rndTile" title="Одноденне переміщення на інший процес">
+        <span class="code">R&amp;D</span><span class="rate" id="rndTileRate"></span>
+      </div>
       <div class="product-btn" id="coreTile0">
         <span class="code" id="coreTile0Code"></span><span class="rate" id="coreTile0Rate"></span>
       </div>
@@ -229,7 +256,7 @@
       </div>
     </div>
 
-    <p class="form-label">Кількість, шт</p>
+    <p class="form-label" id="qtyLabel">Кількість, шт</p>
     <div class="qty-row">
       <input type="number" inputmode="numeric" id="qtyInput" placeholder="напр. 173" min="0">
     </div>
@@ -258,18 +285,97 @@
       <button class="app-window-close" type="button" data-close-window>✕</button>
     </div>
 
-    <div class="cloud-sync-card" id="cloudSyncCard">
-      <div class="cloud-sync-row">
-        <p class="cloud-sync-label" id="cloudSyncLabel">—</p>
-        <span class="cloud-sync-dot" id="cloudSyncDot"></span>
+    <!-- Стан 1: не авторизований — тільки вхід + напівпрозорий фон -->
+    <div class="profile-login" id="profileLogin">
+      <div class="profile-login-bg" aria-hidden="true"></div>
+      <div class="profile-login-content">
+        <div class="profile-login-icon" aria-hidden="true"><span>☁️</span></div>
+        <p class="profile-login-title">Синхронізація між пристроями</p>
+        <p class="profile-login-sub">Авторизуйтесь, щоб синхронізувати записи з хмарою та бачити їх на будь-якому пристрої.</p>
+        <button class="google-signin-btn" id="cloudSignInBtn" type="button">
+          <!-- Заглушка під іконку Google: заміни .google-signin-icon на <img> пізніше -->
+          <span class="google-signin-icon" aria-hidden="true"></span>
+          Увійти через Google
+        </button>
       </div>
-      <div class="cloud-sync-actions">
-        <button class="data-btn" id="cloudSignInBtn" type="button">Увійти через Google</button>
-        <button class="data-btn" id="cloudSignOutBtn" type="button">Вийти</button>
+    </div>
+
+    <!-- Стан 2: доступ обмежено адміністратором (порушення правил) -->
+    <div class="profile-pending" id="profilePending" style="display:none;">
+      <div class="profile-status-row">
+        <span class="status-dot-wrap" id="pendingDotWrap">
+          <span class="status-dot"></span>
+          <span class="status-ring"></span>
+          <span class="status-ring"></span>
+          <span class="status-ring"></span>
+        </span>
+        <div class="profile-status-text">
+          <p class="profile-status-label">Доступ обмежено</p>
+          <p class="profile-status-sub" id="pendingEmail">—</p>
+        </div>
+      </div>
+      <p class="profile-pending-note">Адміністратор обмежив синхронізацію для цього акаунту. Якщо вважаєте це помилкою — зверніться до адміністратора.</p>
+      <button class="data-btn" id="cloudSignOutBtnPending" type="button">Вийти</button>
+    </div>
+
+    <!-- Стан 3: авторизований, доступ активний за замовчуванням — повні налаштування -->
+    <div class="profile-full" id="profileFull" style="display:none;">
+      <div class="profile-status-row">
+        <span class="status-dot-wrap" id="fullDotWrap">
+          <span class="status-dot"></span>
+          <span class="status-ring"></span>
+          <span class="status-ring"></span>
+          <span class="status-ring"></span>
+        </span>
+        <div class="profile-status-text">
+          <p class="profile-status-label" id="cloudSyncLabel">—</p>
+          <p class="profile-status-sub" id="cloudSyncTime">—</p>
+        </div>
+      </div>
+
+      <div class="profile-user-card">
+        <div class="profile-avatar" aria-hidden="true"></div>
+        <div class="profile-user-text">
+          <input class="profile-user-name-input" id="profileUserNameInput" type="text" placeholder="Ваше ім'я" maxlength="60">
+          <p class="profile-user-email" id="profileUserEmail">—</p>
+        </div>
+        <span class="profile-approved-badge">Доступ підтверджено</span>
+      </div>
+
+      <!-- Read-only — значення підтягуються з "Налаштування" (Бригада/Тип
+           зміни) і з поля "Процес" нижче. Тут їх не можна редагувати
+           напряму — захист від випадкових змін і заготовка під майбутній
+           перегляд профілів інших робітників. -->
+      <div class="profile-shift-info">
+        <div class="profile-shift-chip">
+          <span class="profile-shift-chip-label">Процес</span>
+          <span class="profile-shift-chip-value" id="profileShiftProcess">—</span>
+        </div>
+        <div class="profile-shift-chip">
+          <span class="profile-shift-chip-label">Бригада</span>
+          <span class="profile-shift-chip-value" id="profileShiftBrigade">1 зміна</span>
+        </div>
+        <div class="profile-shift-chip">
+          <span class="profile-shift-chip-label">Тип зміни</span>
+          <span class="profile-shift-chip-value" id="profileShiftType">Денна</span>
+        </div>
+      </div>
+
+      <div class="profile-field-group">
+        <label class="profile-field">
+          <span>Лінія роботи</span>
+          <input type="text" id="profileLineInput" placeholder="напр. Лінія 3" maxlength="40">
+        </label>
+        <label class="profile-field">
+          <span>Процес</span>
+          <input type="text" id="profileProcessInput" placeholder="напр. Складання" maxlength="40">
+        </label>
+        <p class="profile-field-note">Поки що зберігається лише на цьому пристрої. Синхронізація цих полів (і публічні профілі для перегляду) — у планах.</p>
+      </div>
+
+      <div class="profile-actions">
         <button class="data-btn" id="cloudForceSyncBtn" type="button">🔄 Синхронізувати зараз</button>
-      </div>
-      <div class="warning-banner">
-        <p class="coming-soon-sub"> Наразі ця функція перебуває в розробці </p>
+        <button class="data-btn" id="cloudSignOutBtn" type="button">Вийти</button>
       </div>
     </div>
   </div>
@@ -281,7 +387,29 @@
       <p class="app-window-title">Налаштування</p>
       <button class="app-window-close" type="button" data-close-window>✕</button>
     </div>
-    <p class="app-window-placeholder">Розділ у розробці</p>
+
+    <div class="settings-group">
+      <p class="settings-group-title">Графік роботи</p>
+
+      <p class="settings-field-label">Бригада</p>
+      <div class="segmented-toggle" id="brigadeToggle">
+        <button type="button" class="segmented-btn" data-value="1">1 зміна</button>
+        <button type="button" class="segmented-btn" data-value="2">2 зміна</button>
+      </div>
+
+      <p class="settings-field-label">Тип зміни</p>
+      <div class="segmented-toggle" id="shiftTypeToggle">
+        <button type="button" class="segmented-btn" data-value="day">Денна (08:00–20:00)</button>
+        <button type="button" class="segmented-btn" data-value="night">Нічна (20:00–08:00)</button>
+      </div>
+
+      <p class="settings-field-note">Записи прив'язані до календарних дат і ніколи не губляться при перемиканні — змінюється лише те, як застосунок розфарбовує робочі/вихідні дні.</p>
+    </div>
+
+    <div class="coming-soon-banner">
+      <p class="coming-soon-title">Розділ у розробці</p>
+      <p class="coming-soon-sub">Решта налаштувань застосунку з’являться тут згодом</p>
+    </div>
   </div>
 </div>
 
@@ -291,27 +419,29 @@
       <p class="app-window-title">Топ працівників</p>
       <button class="app-window-close" type="button" data-close-window>✕</button>
     </div>
-    <p class="app-window-placeholder">Розділ у розробці</p>
+    <div class="coming-soon-banner">
+      <p class="coming-soon-title">Розділ у розробці</p>
+      <p class="coming-soon-sub">Рейтинг з’явиться тут згодом</p>
+    </div>
   </div>
 </div>
 
 <!-- ---------- Bottom navigation ----------
      Закріплена position:fixed знизу, завжди видима, незалежно від того,
-     яке вікно (або жодне) зараз відкрите. Іконки поки що порожні
-     заглушки (.nav-icon) — постав власні зображення/SVG замість них
-     пізніше, наприклад через background-image в CSS-класі виду
-     .nav-icon-auth { background-image: url('iconAuth.png'); } -->
+     яке вікно (або жодне) зараз відкрите. Іконки — user.png, system.png,
+     bar-graph.png у корені репозиторію (постав туди свої зображення,
+     той самий підхід, що й з workDay.png/offDay.png). -->
 <nav class="bottom-nav" id="bottomNav">
   <button class="nav-btn" type="button" data-window="auth">
-    <img class="nav-icon" src="user.png">
+    <img class="nav-icon" src="user.png" alt="">
     <span class="nav-label">Профіль</span>
   </button>
   <button class="nav-btn" type="button" data-window="settings">
-    <img class="nav-icon" src="system.png">
+    <img class="nav-icon" src="system.png" alt="">
     <span class="nav-label">Налаштування</span>
   </button>
   <button class="nav-btn" type="button" data-window="top">
-    <img class="nav-icon" src="bar-graph.png">
+    <img class="nav-icon" src="bar-graph.png" alt="">
     <span class="nav-label">Топ</span>
   </button>
 </nav>
