@@ -16,7 +16,6 @@ import {
   set,
   update,
   get,
-  onValue,
   goOffline,
   goOnline,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
@@ -41,12 +40,52 @@ setPersistence(auth, browserLocalPersistence).catch((error) => {
   console.error("Помилка налаштування persistence:", error);
 });
 
+// ---------- On-demand сесії до Realtime Database ----------
+// SDK за замовчуванням тримає постійний WebSocket відкритим — на
+// безкоштовному Spark-плані це б'є в ліміт 100 одночасних з'єднань.
+// Замість цього: одразу переводимо в offline, а для кожної окремої
+// операції (читання/запис) відкриваємо зʼєднання лише на час цієї
+// операції й одразу закриваємо — незалежно від того, вдалась вона чи ні.
+goOffline(db);
+
+let sessionChain = Promise.resolve();
+// Черга, а не паралельні виклики: якщо два запити (напр. швидкий
+// подвійний тап "додати запис") стартанули б одночасно, goOffline()
+// одного міг би обірвати ще незавершений запит іншого.
+function runOnlineSession(fn) {
+  const result = sessionChain.then(async () => {
+    goOnline(db);
+    try {
+      return await fn();
+    } finally {
+      goOffline(db);
+    }
+  });
+  sessionChain = result.catch(() => {}); // один невдалий сеанс не має зупиняти чергу назавжди
+  return result;
+}
+
+const SYNC_PENDING_KEY = 'shiftTrackerSyncPending';
+function markSyncPending(flag) {
+  try {
+    if (flag) localStorage.setItem(SYNC_PENDING_KEY, '1');
+    else localStorage.removeItem(SYNC_PENDING_KEY);
+  } catch (e) { /* сховище недоступне */ }
+}
+function hasSyncPending() {
+  try { return localStorage.getItem(SYNC_PENDING_KEY) === '1'; } catch (e) { return false; }
+}
+
 let currentUser = null;
 let approved = false;
 let profileName = '';
 let bootstrapped = false;
 let pushTimer = null;
 let lastSyncedAt = null;
+// 'idle' | 'syncing' | 'synced' | 'sync-error' — результат ОСТАННЬОЇ
+// спроби синхронізації, а не "чи є зараз живе з'єднання" (такого більше
+// немає). Значення навмисно лишені сумісними з тим, що вже читає UI.
+let syncState = 'idle';
 
 // ---------- Event Bus ----------
 function emit(status) {
@@ -56,15 +95,10 @@ function emit(status) {
 function currentStatus() {
   if (!currentUser) return { state: 'signed-out' };
   if (!approved) return { state: 'blocked', name: profileName, email: currentUser.email };
-  return { state: connectionState, name: profileName, email: currentUser.email, lastSyncedAt };
+  // UI (script.js) досі очікує саме ці рядки — 'connecting'/'connected'/'offline'.
+  const uiState = syncState === 'syncing' ? 'connecting' : (syncState === 'sync-error' ? 'offline' : 'connected');
+  return { state: uiState, name: profileName, email: currentUser.email, lastSyncedAt };
 }
-let connectionState = 'connecting';
-
-// ---------- Connection Indicator ----------
-onValue(ref(db, '.info/connected'), (snap) => {
-  connectionState = snap.val() === true ? 'connected' : 'offline';
-  emit(currentStatus());
-});
 
 // ---------- Auth ----------
 function signIn() {
@@ -86,46 +120,53 @@ onAuthStateChanged(auth, async (user) => {
     approved = false;
     profileName = '';
     lastSyncedAt = null;
+    syncState = 'idle';
     emit(currentStatus());
     return;
   }
 
   const isAdmin = user.email === ADMIN_EMAIL;
+  syncState = 'syncing';
+  emit(currentStatus());
 
   try {
-    const profileRef = ref(db, 'users/' + user.uid + '/profile');
-    const existing = await get(profileRef);
-    const prior = existing.exists() ? existing.val() : {};
+    await runOnlineSession(async () => {
+      const profileRef = ref(db, 'users/' + user.uid + '/profile');
+      const existing = await get(profileRef);
+      const prior = existing.exists() ? existing.val() : {};
 
-    // Доступ надається автоматично всім — адмін лише може заблокувати
-    // конкретного користувача (prior.blocked === true), а не навпаки
-    // підтверджувати кожного вручну.
-    approved = isAdmin ? true : (prior.blocked !== true);
+      // Доступ надається автоматично всім — адмін лише може заблокувати
+      // конкретного користувача (prior.blocked === true), а не навпаки
+      // підтверджувати кожного вручну.
+      approved = isAdmin ? true : (prior.blocked !== true);
 
-    // Ім'я з Google — лише разова початкова підказка. Якщо людина вже
-    // задала своє (через updateDisplayName), воно не перезаписується
-    // при кожному вході — бо в Google-акаунті часто нік, а не справжнє ім'я.
-    profileName = prior.name || user.displayName || '';
+      // Ім'я з Google — лише разова початкова підказка. Якщо людина вже
+      // задала своє (через updateDisplayName), воно не перезаписується
+      // при кожному вході — бо в Google-акаунті часто нік, а не справжнє ім'я.
+      profileName = prior.name || user.displayName || '';
 
-    // Бригада/тип зміни: якщо на ЦЬОМУ пристрої людина ще нічого сама не
-    // обирала, а в хмарі вже є збережене налаштування (з іншого пристрою) —
-    // підхоплюємо його. Якщо ж тут уже щось обрано локально — не чіпаємо,
-    // локальний вибір має пріоритет і саме він піде в хмару нижче.
-    if (window.AppBridge && !window.AppBridge.hasLocalShiftConfig() && (prior.brigade || prior.shiftType)) {
-      window.AppBridge.applyCloudShiftConfig({ brigade: prior.brigade, shiftType: prior.shiftType });
-    }
+      // Бригада/тип зміни: якщо на ЦЬОМУ пристрої людина ще нічого сама не
+      // обирала, а в хмарі вже є збережене налаштування (з іншого пристрою) —
+      // підхоплюємо його. Якщо ж тут уже щось обрано локально — не чіпаємо,
+      // локальний вибір має пріоритет і саме він піде в хмару нижче.
+      if (window.AppBridge && !window.AppBridge.hasLocalShiftConfig() && (prior.brigade || prior.shiftType)) {
+        window.AppBridge.applyCloudShiftConfig({ brigade: prior.brigade, shiftType: prior.shiftType });
+      }
 
-    const profilePayload = {
-      name: profileName,
-      email: user.email || '',
-      firstSeen: prior.firstSeen || Date.now(),
-      lastSeen: Date.now(),
-    };
+      const profilePayload = {
+        name: profileName,
+        email: user.email || '',
+        firstSeen: prior.firstSeen || Date.now(),
+        lastSeen: Date.now(),
+      };
 
-    await update(profileRef, profilePayload);
+      await update(profileRef, profilePayload);
+    });
+    syncState = 'synced';
   } catch (e) {
     approved = isAdmin;
     profileName = user.displayName || '';
+    syncState = 'sync-error';
   }
 
   emit(currentStatus());
@@ -139,49 +180,68 @@ onAuthStateChanged(auth, async (user) => {
 async function bootstrapSync() {
   if (bootstrapped || !window.AppBridge) return;
   bootstrapped = true;
+  syncState = 'syncing';
+  emit(currentStatus());
 
-  const dataRef = ref(db, 'users/' + currentUser.uid + '/data');
-  let cloudSnap;
   try {
-    cloudSnap = await get(dataRef);
+    await runOnlineSession(async () => {
+      const dataRef = ref(db, 'users/' + currentUser.uid + '/data');
+      const cloudSnap = await get(dataRef);
+
+      const local = window.AppBridge.getLocalBundle();
+      const localIsEmpty = Object.keys(local.earnings || {}).length === 0;
+      // Незавершений попередній запис (з минулої offline-спроби) має
+      // пріоритет над підтягуванням хмари — інакше він загубиться.
+      const pending = hasSyncPending();
+
+      if (cloudSnap.exists() && localIsEmpty && !pending) {
+        window.AppBridge.applyCloudBundle(cloudSnap.val());
+      } else {
+        await set(dataRef, local);
+        markSyncPending(false);
+      }
+    });
+    lastSyncedAt = Date.now();
+    syncState = 'synced';
   } catch (e) {
-    return;
+    syncState = 'sync-error';
   }
-
-  const local = window.AppBridge.getLocalBundle();
-  const localIsEmpty = Object.keys(local.earnings || {}).length === 0;
-
-  if (cloudSnap.exists() && localIsEmpty) {
-    window.AppBridge.applyCloudBundle(cloudSnap.val());
-  } else {
-    await set(dataRef, local);
-  }
-
-  lastSyncedAt = Date.now();
   emit(currentStatus());
 }
 
 // ---------- Push Data ----------
+async function doPush() {
+  if (!currentUser || !approved || !window.AppBridge) return;
+  const bundle = window.AppBridge.getLocalBundle();
+  syncState = 'syncing';
+  emit(currentStatus());
+  try {
+    await runOnlineSession(() => set(ref(db, 'users/' + currentUser.uid + '/data'), bundle));
+    markSyncPending(false);
+    lastSyncedAt = Date.now();
+    syncState = 'synced';
+  } catch (e) {
+    // Немає мережі або збій — запис лишається в localStorage як є
+    // (script.js і так пише все в localStorage синхронно, до мережі).
+    // Позначаємо, щоб наступний запуск/вхід сам домовив push.
+    markSyncPending(true);
+    syncState = 'sync-error';
+  }
+  emit(currentStatus());
+}
+
 function pushLocalData() {
   if (!currentUser || !approved || !window.AppBridge) return;
   clearTimeout(pushTimer);
-  pushTimer = setTimeout(() => {
-    set(ref(db, 'users/' + currentUser.uid + '/data'), window.AppBridge.getLocalBundle())
-      .then(() => {
-        lastSyncedAt = Date.now();
-        emit(currentStatus());
-      })
-      .catch(() => {});
-  }, 400);
+  pushTimer = setTimeout(doPush, 400);
 }
 
 // ---------- Force Sync ----------
+// На відміну від pushLocalData() — без 400мс дебаунсу, бо це пряма дія
+// людини (натискання кнопки "Синхронізувати зараз") і має відповісти одразу.
 function forceSync() {
-  goOffline(db);
-  setTimeout(() => {
-    goOnline(db);
-    pushLocalData();
-  }, 300);
+  clearTimeout(pushTimer);
+  doPush();
 }
 
 // ---------- Update Display Name ----------
@@ -191,7 +251,7 @@ function updateDisplayName(name) {
   const trimmed = (name || '').trim();
   if (!currentUser) return Promise.reject(new Error('not signed in'));
   if (!trimmed) return Promise.reject(new Error('empty name'));
-  return update(ref(db, 'users/' + currentUser.uid + '/profile'), { name: trimmed }).then(() => {
+  return runOnlineSession(() => update(ref(db, 'users/' + currentUser.uid + '/profile'), { name: trimmed })).then(() => {
     profileName = trimmed;
     emit(currentStatus());
   });
@@ -200,10 +260,10 @@ function updateDisplayName(name) {
 // ---------- Update Shift Config (Бригада / Тип зміни) ----------
 function updateShiftConfig(cfg) {
   if (!currentUser || !cfg) return Promise.resolve();
-  return update(ref(db, 'users/' + currentUser.uid + '/profile'), {
+  return runOnlineSession(() => update(ref(db, 'users/' + currentUser.uid + '/profile'), {
     brigade: cfg.brigade === 2 ? 2 : 1,
     shiftType: cfg.shiftType === 'night' ? 'night' : 'day',
-  }).catch(() => {});
+  })).catch(() => {});
 }
 
 // ---------- Export Bridge ----------

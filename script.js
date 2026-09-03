@@ -1487,9 +1487,9 @@ function initCloudSyncUI() {
     } else {
       fullBox.style.display = '';
       setDotState(fullDotWrap, status.state); // connecting / connected / offline
-      if (status.state === 'connected') cloudSyncLabel.textContent = 'З’єднано з базою';
-      else if (status.state === 'offline') cloudSyncLabel.textContent = 'Немає з’єднання — записи чекають локально';
-      else cloudSyncLabel.textContent = 'З’єднання…';
+      if (status.state === 'connected') cloudSyncLabel.textContent = 'Синхронізовано';
+      else if (status.state === 'offline') cloudSyncLabel.textContent = 'Не вдалось синхронізувати — спробуємо ще раз пізніше';
+      else cloudSyncLabel.textContent = 'Синхронізація…';
       cloudSyncTime.textContent = formatSyncTime(status.lastSyncedAt);
       if (document.activeElement !== nameInput) nameInput.value = status.name || '';
       userEmail.textContent = status.email || '—';
