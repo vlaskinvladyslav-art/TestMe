@@ -87,6 +87,11 @@ function unitFor(code) { return isHourlyCode(code) ? 'год' : 'шт'; }
 const STORAGE_KEY = 'shiftTrackerEarnings';
 
 let earningsData = {};   // { 'YYYY-MM-DD': [{code, qty, rate, amount}, ...] }
+// IDs that were permanently deleted after the 10-second undo window.
+// They are synced as tombstones so an older copy on another device cannot
+// silently bring a deleted entry back.
+const DELETED_ENTRIES_KEY = 'shiftTrackerDeletedEntries';
+let deletedEntryIds = {};
 let dataReady = false;
 let selectedProduct = CORE_PRODUCTS[0].code;
 let activeDateKey = null; // date currently open in the modal
@@ -216,6 +221,12 @@ function loadEarnings() {
   } catch (e) {
     earningsData = {};
   }
+  try {
+    const deletedRaw = localStorage.getItem(DELETED_ENTRIES_KEY);
+    deletedEntryIds = deletedRaw ? JSON.parse(deletedRaw) : {};
+  } catch (e) {
+    deletedEntryIds = {};
+  }
   dataReady = true;
   resumePendingPurges();
 }
@@ -259,7 +270,12 @@ function scheduleEntryPurge(key, entry, delay) {
     const arr = earningsData[key];
     if (!arr) return;
     const i = arr.indexOf(entry);
-    if (i !== -1) arr.splice(i, 1);
+    if (i !== -1) {
+      const id = ensureEntryId(key, entry, i);
+      deletedEntryIds[id] = Date.now();
+      try { localStorage.setItem(DELETED_ENTRIES_KEY, JSON.stringify(deletedEntryIds)); } catch (e) { /* ignore */ }
+      arr.splice(i, 1);
+    }
     if (arr.length === 0) delete earningsData[key];
     saveEarnings();
     if (activeDateKey === key) renderEntryList();
@@ -1397,6 +1413,84 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   });
 })();
 
+// ---------- Cloud merge helpers ----------
+// Existing records predate permanent IDs. Their ID is generated once from
+// their immutable historical fields, so the same copied record receives the
+// same ID on another device. New IDs are then persisted with the record.
+function ensureEntryId(key, entry, index) {
+  if (entry.id) return entry.id;
+  const seed = [key, entry.time || '', entry.code || '', entry.qty || '', entry.rate || '', entry.amount || '', entry.order || '', index].join('|');
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) hash = Math.imul(hash ^ seed.charCodeAt(i), 16777619);
+  entry.id = 'e_' + (hash >>> 0).toString(36) + '_' + String(index || 0);
+  return entry.id;
+}
+
+function normalizeEarnings(source) {
+  const out = {};
+  Object.keys(source || {}).forEach(key => {
+    const arr = Array.isArray(source[key]) ? source[key] : [];
+    out[key] = arr.map((entry, index) => {
+      const copy = { ...entry };
+      ensureEntryId(key, copy, index);
+      return copy;
+    });
+    if (!out[key].length) delete out[key];
+  });
+  return out;
+}
+
+function mergeBundles(cloudBundle, localBundle) {
+  const cloud = cloudBundle || {};
+  const local = localBundle || {};
+  const cloudDeleted = cloud.deletedEntryIds || {};
+  const localDeleted = local.deletedEntryIds || {};
+  const mergedDeleted = { ...cloudDeleted, ...localDeleted };
+
+  const byId = new Map();
+  function add(source) {
+    const normalized = normalizeEarnings(source || {});
+    Object.keys(normalized).forEach(key => normalized[key].forEach((entry, index) => {
+      const id = ensureEntryId(key, entry, index);
+      const existing = byId.get(id);
+      // The same entry may exist in both copies. Prefer the version marked
+      // deleted during the undo window; otherwise either copy is equivalent.
+      if (!existing || (entry.deleted && !existing.entry.deleted)) byId.set(id, { key, entry });
+    }));
+  }
+  add(cloud.earnings);
+  add(local.earnings);
+
+  const earnings = {};
+  byId.forEach(({ key, entry }, id) => {
+    if (mergedDeleted[id]) return;
+    if (!earnings[key]) earnings[key] = [];
+    earnings[key].push(entry);
+  });
+
+  // Goals are keyed by month. A numeric goal has no timestamp in the current
+  // data model, so keep the local value on a direct conflict to preserve the
+  // user's latest action on the device currently being used.
+  const goals = { ...(cloud.goals || {}), ...(local.goals || {}) };
+
+  // Custom products are naturally keyed by code in the current app.
+  const productsByCode = new Map();
+  [...(cloud.customProducts || []), ...(local.customProducts || [])].forEach(p => {
+    if (p && p.code) productsByCode.set(p.code, { ...p });
+  });
+
+  // Leave days are a set: if either copy marks a date, keep that information.
+  const leaveDaysMerged = { ...(cloud.leaveDays || {}), ...(local.leaveDays || {}) };
+
+  return {
+    earnings,
+    goals,
+    customProducts: Array.from(productsByCode.values()),
+    leaveDays: leaveDaysMerged,
+    deletedEntryIds: mergedDeleted,
+  };
+}
+
 // ---------- Bridge for firebase-sync.js ----------
 // A module script can't see this file's top-level let/const bindings by
 // name, so this is the one deliberate, explicit door between the two:
@@ -1404,17 +1498,20 @@ document.getElementById('importFile').addEventListener('change', (e) => {
 // functions, never by reaching into script.js's internals directly.
 window.AppBridge = {
   getLocalBundle() {
-    return { earnings: earningsData, goals: goalsData, customProducts, leaveDays };
+    return { earnings: normalizeEarnings(earningsData), goals: goalsData, customProducts, leaveDays, deletedEntryIds };
   },
   applyCloudBundle(bundle) {
     earningsData = (bundle && bundle.earnings) || {};
     goalsData = (bundle && bundle.goals) || {};
     customProducts = (bundle && bundle.customProducts) || [];
     leaveDays = (bundle && bundle.leaveDays) || {};
+    deletedEntryIds = (bundle && bundle.deletedEntryIds) || {};
+    earningsData = normalizeEarnings(earningsData);
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(earningsData)); } catch (e) { /* ignore */ }
     try { localStorage.setItem(GOALS_KEY, JSON.stringify(goalsData)); } catch (e) { /* ignore */ }
     try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(customProducts)); } catch (e) { /* ignore */ }
     try { localStorage.setItem(LEAVE_KEY, JSON.stringify(leaveDays)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(DELETED_ENTRIES_KEY, JSON.stringify(deletedEntryIds)); } catch (e) { /* ignore */ }
     resumePendingPurges();
     renderToday();
     renderGoal();
@@ -1422,6 +1519,7 @@ window.AppBridge = {
     renderCalendar();
     renderStats();
   },
+  mergeBundles,
   // Викликається firebase-sync.js лише коли на ЦЬОМУ пристрої ще немає
   // власного shiftTrackerShiftConfig (перший вхід) — щоб не затерти
   // налаштування, які людина вже свідомо обрала тут.
