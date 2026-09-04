@@ -1500,6 +1500,7 @@ h1 span { color: var(--work); }
   padding: 18px 18px 26px;
   max-height: 85vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   transform: translateY(24px);
   transition: transform 0.32s cubic-bezier(0.22, 0.9, 0.32, 1);
 }
@@ -1884,7 +1885,8 @@ h1 span { color: var(--work); }
    скролиться незалежно (overflow-y: auto), а overscroll-behavior:
    contain не дає докрутці до краю вмісту "провалитись" далі, в body
    під вікном (типова проблема scroll chaining на iOS Safari). */
-body.nav-window-open { overflow: hidden; }
+body.nav-window-open,
+body.day-modal-open { overflow: hidden; }
 
 .app-window {
   position: fixed;
