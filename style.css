@@ -738,19 +738,25 @@ h1 span { color: var(--work); }
   padding: 2px 6px;
 }
 .phantom-timer-track {
+  position: relative;
   height: 2px;
   background: var(--surface-2);
   border-radius: 2px;
   margin-top: 6px;
   overflow: hidden;
 }
-.phantom-timer-bar {
+.delete-line-left,
+.delete-line-right {
+  position: absolute;
+  top: 0;
   height: 100%;
-  width: 100%;
+  width: 0%;
   background: var(--money);
   transition-property: width;
   transition-timing-function: linear;
 }
+.delete-line-left { left: 0; }
+.delete-line-right { right: 0; }
 
 /* ---------- Goal card ---------- */
 .goal-card {
@@ -1325,12 +1331,32 @@ h1 span { color: var(--work); }
   flex-wrap: wrap;
 }
 .profile-avatar {
+  position: relative;
   width: 40px;
   height: 40px;
   border-radius: 50%;
   background: var(--surface-2);
   border: 1px solid var(--line);
   flex-shrink: 0;
+  overflow: hidden;
+}
+.profile-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile-avatar-initials {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--muted);
 }
 .profile-user-text { flex: 1; min-width: 0; }
 .profile-user-name-input {
@@ -1500,7 +1526,6 @@ h1 span { color: var(--work); }
   padding: 18px 18px 26px;
   max-height: 85vh;
   overflow-y: auto;
-  overscroll-behavior: contain;
   transform: translateY(24px);
   transition: transform 0.32s cubic-bezier(0.22, 0.9, 0.32, 1);
 }
@@ -1885,8 +1910,7 @@ h1 span { color: var(--work); }
    скролиться незалежно (overflow-y: auto), а overscroll-behavior:
    contain не дає докрутці до краю вмісту "провалитись" далі, в body
    під вікном (типова проблема scroll chaining на iOS Safari). */
-body.nav-window-open,
-body.day-modal-open { overflow: hidden; }
+body.nav-window-open { overflow: hidden; }
 
 .app-window {
   position: fixed;
@@ -1972,6 +1996,10 @@ body.day-modal-open { overflow: hidden; }
 /* Поки відкрита модалка запису дня — нав-бар ховається, щоб не
    перекривати кнопку "Додати запис" і не ловити випадкові тапи під
    модалкою, що зʼїжджає знизу. */
+/* Поки відкрита модалка запису дня, body теж не повинен скролитись —
+   раніше цей клас лише ховав bottom-nav, сам фон все ще міг гортатись
+   під модалкою. */
+body.day-modal-open { overflow: hidden; }
 body.day-modal-open .bottom-nav {
   opacity: 0;
   visibility: hidden;

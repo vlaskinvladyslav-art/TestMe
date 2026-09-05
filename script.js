@@ -87,11 +87,6 @@ function unitFor(code) { return isHourlyCode(code) ? 'год' : 'шт'; }
 const STORAGE_KEY = 'shiftTrackerEarnings';
 
 let earningsData = {};   // { 'YYYY-MM-DD': [{code, qty, rate, amount}, ...] }
-// IDs that were permanently deleted after the 10-second undo window.
-// They are synced as tombstones so an older copy on another device cannot
-// silently bring a deleted entry back.
-const DELETED_ENTRIES_KEY = 'shiftTrackerDeletedEntries';
-let deletedEntryIds = {};
 let dataReady = false;
 let selectedProduct = CORE_PRODUCTS[0].code;
 let activeDateKey = null; // date currently open in the modal
@@ -221,12 +216,6 @@ function loadEarnings() {
   } catch (e) {
     earningsData = {};
   }
-  try {
-    const deletedRaw = localStorage.getItem(DELETED_ENTRIES_KEY);
-    deletedEntryIds = deletedRaw ? JSON.parse(deletedRaw) : {};
-  } catch (e) {
-    deletedEntryIds = {};
-  }
   dataReady = true;
   resumePendingPurges();
 }
@@ -262,7 +251,7 @@ function saveEarnings() {
 // every other aggregate above already skip flagged entries, so a phantom
 // entry stops "counting" the instant it's marked, well before it's
 // actually purged from storage.
-const PURGE_DELAY_MS = 10000; // how long an entry stays recoverable
+const PURGE_DELAY_MS = 15000; // how long an entry stays recoverable (0.8.2: 10s → 15s)
 
 function scheduleEntryPurge(key, entry, delay) {
   setTimeout(() => {
@@ -270,12 +259,7 @@ function scheduleEntryPurge(key, entry, delay) {
     const arr = earningsData[key];
     if (!arr) return;
     const i = arr.indexOf(entry);
-    if (i !== -1) {
-      const id = ensureEntryId(key, entry, i);
-      deletedEntryIds[id] = Date.now();
-      try { localStorage.setItem(DELETED_ENTRIES_KEY, JSON.stringify(deletedEntryIds)); } catch (e) { /* ignore */ }
-      arr.splice(i, 1);
-    }
+    if (i !== -1) arr.splice(i, 1);
     if (arr.length === 0) delete earningsData[key];
     saveEarnings();
     if (activeDateKey === key) renderEntryList();
@@ -1198,11 +1182,11 @@ function renderEntryList() {
           (fmtTime(e.time) ? '<span class="entry-time">' + fmtTime(e.time) + '</span>' : '') +
           '<div class="entry-row-bottom"><span class="entry-amount">' + fmtMoney(e.amount) + '</span>' +
           (e.deleted
-            ? '<button class="entry-restore" data-idx="' + idx + '" title="Відновити">↺</button>'
+            ? '<button class="entry-restore" data-idx="' + idx + '" title="Скасувати видалення">↺</button>'
             : '<button class="entry-del" data-idx="' + idx + '">✕</button>') +
           '</div>' +
         '</div>' +
-        (e.deleted ? '<div class="phantom-timer-track"><div class="phantom-timer-bar" data-remaining="' + remainingMs + '"></div></div>' : '');
+        (e.deleted ? '<div class="phantom-timer-track"><div class="delete-line-left" data-remaining="' + remainingMs + '"></div><div class="delete-line-right" data-remaining="' + remainingMs + '"></div></div>' : '');
       list.appendChild(row);
     });
 
@@ -1244,14 +1228,15 @@ function renderEntryList() {
       });
     });
 
-    // Animate each phantom row's countdown bar from full to empty over
-    // its own remaining time — a quiet visual cue that it's about to be
-    // purged for good, without needing a numeric countdown.
-    list.querySelectorAll('.phantom-timer-bar').forEach(bar => {
-      const remaining = parseInt(bar.getAttribute('data-remaining'), 10) || 0;
-      bar.style.transitionDuration = remaining + 'ms';
+    // Дві лінії ростуть від країв до центру за час, що лишився до
+    // остаточного видалення — зустрічаються посередині рівно в момент
+    // покупки. Той самий подвійний rAF-трюк, що й раніше: перший кадр
+    // фіксує стартовий стан (0%), другий — стартує саму transition.
+    list.querySelectorAll('.delete-line-left, .delete-line-right').forEach(line => {
+      const remaining = parseInt(line.getAttribute('data-remaining'), 10) || 0;
+      line.style.transitionDuration = remaining + 'ms';
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => { bar.style.width = '0%'; });
+        requestAnimationFrame(() => { line.style.width = '50%'; });
       });
     });
   }
@@ -1413,84 +1398,6 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   });
 })();
 
-// ---------- Cloud merge helpers ----------
-// Existing records predate permanent IDs. Their ID is generated once from
-// their immutable historical fields, so the same copied record receives the
-// same ID on another device. New IDs are then persisted with the record.
-function ensureEntryId(key, entry, index) {
-  if (entry.id) return entry.id;
-  const seed = [key, entry.time || '', entry.code || '', entry.qty || '', entry.rate || '', entry.amount || '', entry.order || '', index].join('|');
-  let hash = 2166136261;
-  for (let i = 0; i < seed.length; i++) hash = Math.imul(hash ^ seed.charCodeAt(i), 16777619);
-  entry.id = 'e_' + (hash >>> 0).toString(36) + '_' + String(index || 0);
-  return entry.id;
-}
-
-function normalizeEarnings(source) {
-  const out = {};
-  Object.keys(source || {}).forEach(key => {
-    const arr = Array.isArray(source[key]) ? source[key] : [];
-    out[key] = arr.map((entry, index) => {
-      const copy = { ...entry };
-      ensureEntryId(key, copy, index);
-      return copy;
-    });
-    if (!out[key].length) delete out[key];
-  });
-  return out;
-}
-
-function mergeBundles(cloudBundle, localBundle) {
-  const cloud = cloudBundle || {};
-  const local = localBundle || {};
-  const cloudDeleted = cloud.deletedEntryIds || {};
-  const localDeleted = local.deletedEntryIds || {};
-  const mergedDeleted = { ...cloudDeleted, ...localDeleted };
-
-  const byId = new Map();
-  function add(source) {
-    const normalized = normalizeEarnings(source || {});
-    Object.keys(normalized).forEach(key => normalized[key].forEach((entry, index) => {
-      const id = ensureEntryId(key, entry, index);
-      const existing = byId.get(id);
-      // The same entry may exist in both copies. Prefer the version marked
-      // deleted during the undo window; otherwise either copy is equivalent.
-      if (!existing || (entry.deleted && !existing.entry.deleted)) byId.set(id, { key, entry });
-    }));
-  }
-  add(cloud.earnings);
-  add(local.earnings);
-
-  const earnings = {};
-  byId.forEach(({ key, entry }, id) => {
-    if (mergedDeleted[id]) return;
-    if (!earnings[key]) earnings[key] = [];
-    earnings[key].push(entry);
-  });
-
-  // Goals are keyed by month. A numeric goal has no timestamp in the current
-  // data model, so keep the local value on a direct conflict to preserve the
-  // user's latest action on the device currently being used.
-  const goals = { ...(cloud.goals || {}), ...(local.goals || {}) };
-
-  // Custom products are naturally keyed by code in the current app.
-  const productsByCode = new Map();
-  [...(cloud.customProducts || []), ...(local.customProducts || [])].forEach(p => {
-    if (p && p.code) productsByCode.set(p.code, { ...p });
-  });
-
-  // Leave days are a set: if either copy marks a date, keep that information.
-  const leaveDaysMerged = { ...(cloud.leaveDays || {}), ...(local.leaveDays || {}) };
-
-  return {
-    earnings,
-    goals,
-    customProducts: Array.from(productsByCode.values()),
-    leaveDays: leaveDaysMerged,
-    deletedEntryIds: mergedDeleted,
-  };
-}
-
 // ---------- Bridge for firebase-sync.js ----------
 // A module script can't see this file's top-level let/const bindings by
 // name, so this is the one deliberate, explicit door between the two:
@@ -1498,20 +1405,17 @@ function mergeBundles(cloudBundle, localBundle) {
 // functions, never by reaching into script.js's internals directly.
 window.AppBridge = {
   getLocalBundle() {
-    return { earnings: normalizeEarnings(earningsData), goals: goalsData, customProducts, leaveDays, deletedEntryIds };
+    return { earnings: earningsData, goals: goalsData, customProducts, leaveDays };
   },
   applyCloudBundle(bundle) {
     earningsData = (bundle && bundle.earnings) || {};
     goalsData = (bundle && bundle.goals) || {};
     customProducts = (bundle && bundle.customProducts) || [];
     leaveDays = (bundle && bundle.leaveDays) || {};
-    deletedEntryIds = (bundle && bundle.deletedEntryIds) || {};
-    earningsData = normalizeEarnings(earningsData);
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(earningsData)); } catch (e) { /* ignore */ }
     try { localStorage.setItem(GOALS_KEY, JSON.stringify(goalsData)); } catch (e) { /* ignore */ }
     try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(customProducts)); } catch (e) { /* ignore */ }
     try { localStorage.setItem(LEAVE_KEY, JSON.stringify(leaveDays)); } catch (e) { /* ignore */ }
-    try { localStorage.setItem(DELETED_ENTRIES_KEY, JSON.stringify(deletedEntryIds)); } catch (e) { /* ignore */ }
     resumePendingPurges();
     renderToday();
     renderGoal();
@@ -1519,7 +1423,6 @@ window.AppBridge = {
     renderCalendar();
     renderStats();
   },
-  mergeBundles,
   // Викликається firebase-sync.js лише коли на ЦЬОМУ пристрої ще немає
   // власного shiftTrackerShiftConfig (перший вхід) — щоб не затерти
   // налаштування, які людина вже свідомо обрала тут.
@@ -1550,6 +1453,8 @@ function initCloudSyncUI() {
   const cloudSyncTime = document.getElementById('cloudSyncTime');
   const nameInput = document.getElementById('profileUserNameInput');
   const userEmail = document.getElementById('profileUserEmail');
+  const avatarImg = document.getElementById('profileAvatarImg');
+  const avatarInitials = document.getElementById('profileAvatarInitials');
 
   const signInBtn = document.getElementById('cloudSignInBtn');
   const signOutBtnPending = document.getElementById('cloudSignOutBtnPending');
@@ -1571,6 +1476,43 @@ function initCloudSyncUI() {
     return 'Синхронізовано: ' + (sameDay ? ('сьогодні о ' + time) : (d.toLocaleDateString('uk-UA') + ' о ' + time));
   }
 
+  function initialsFrom(name, email) {
+    const source = (name || '').trim() || (email || '').trim();
+    if (!source) return '?';
+    const parts = source.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return source.slice(0, 2).toUpperCase();
+  }
+
+  // Google віддає URL з опційним "=sNN-c" на кінці (розмір+crop) — знімаємо
+  // будь-який наявний розмір і просимо свій, під розмір кружечка (з запасом
+  // під ретіну), щоб не тягнути повнорозмірне фото в 40px круг.
+  function sizedPhotoUrl(url) {
+    return url ? url.replace(/=s\d+-c$/, '') + '=s96-c' : url;
+  }
+
+  // Фото — пряме посилання на сервери Google (photoURL з Auth), ніколи
+  // не проходить через нашу базу й нічого в ній не займає. Якщо фото
+  // немає (або не завантажилось) — показуємо ініціали замість нього.
+  function renderAvatar(photoUrl, name, email) {
+    avatarInitials.textContent = initialsFrom(name, email);
+    if (!photoUrl) {
+      avatarImg.style.display = 'none';
+      avatarInitials.style.display = '';
+      return;
+    }
+    const sized = sizedPhotoUrl(photoUrl);
+    avatarImg.onload = () => {
+      avatarImg.style.display = '';
+      avatarInitials.style.display = 'none';
+    };
+    avatarImg.onerror = () => {
+      avatarImg.style.display = 'none';
+      avatarInitials.style.display = '';
+    };
+    if (avatarImg.src !== sized) avatarImg.src = sized;
+  }
+
   function render(status) {
     loginBox.style.display = 'none';
     pendingBox.style.display = 'none';
@@ -1589,6 +1531,7 @@ function initCloudSyncUI() {
       else if (status.state === 'offline') cloudSyncLabel.textContent = 'Не вдалось синхронізувати — спробуємо ще раз пізніше';
       else cloudSyncLabel.textContent = 'Синхронізація…';
       cloudSyncTime.textContent = formatSyncTime(status.lastSyncedAt);
+      renderAvatar(status.photo, status.name, status.email);
       if (document.activeElement !== nameInput) nameInput.value = status.name || '';
       userEmail.textContent = status.email || '—';
     }
@@ -1622,6 +1565,11 @@ function initCloudSyncUI() {
   });
 
   if (nameInput) {
+    nameInput.addEventListener('input', () => {
+      if (avatarImg.style.display === 'none') {
+        avatarInitials.textContent = initialsFrom(nameInput.value, userEmail.textContent);
+      }
+    });
     nameInput.addEventListener('change', () => {
       const trimmed = nameInput.value.trim();
       if (!trimmed) { nameInput.value = ''; return; } // порожнє ім'я не зберігаємо

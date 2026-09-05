@@ -94,10 +94,10 @@ function emit(status) {
 
 function currentStatus() {
   if (!currentUser) return { state: 'signed-out' };
-  if (!approved) return { state: 'blocked', name: profileName, email: currentUser.email };
+  if (!approved) return { state: 'blocked', name: profileName, email: currentUser.email, photo: currentUser.photoURL || null };
   // UI (script.js) досі очікує саме ці рядки — 'connecting'/'connected'/'offline'.
   const uiState = syncState === 'syncing' ? 'connecting' : (syncState === 'sync-error' ? 'offline' : 'connected');
-  return { state: uiState, name: profileName, email: currentUser.email, lastSyncedAt };
+  return { state: uiState, name: profileName, email: currentUser.email, photo: currentUser.photoURL || null, lastSyncedAt };
 }
 
 // ---------- Auth ----------
@@ -176,41 +176,34 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-// ---------- Safe Merge Sync ----------
-// ShiftMe is local-first: Firebase is a second copy and transport between
-// devices, not an authority allowed to silently destroy local data.
-// On every successful sync we read the cloud copy, merge both bundles and
-// only then write the merged result back. This keeps records created on a
-// second/offline device instead of choosing one whole bundle over another.
-async function readMergeAndWrite() {
-  const dataRef = ref(db, 'users/' + currentUser.uid + '/data');
-  const cloudSnap = await get(dataRef);
-  const cloud = cloudSnap.exists() ? cloudSnap.val() : {};
-  const local = window.AppBridge.getLocalBundle();
-  const merged = window.AppBridge.mergeBundles(cloud, local);
-
-  // Apply the exact merged result locally before returning. If the following
-  // network write fails, the union still survives on this device and the
-  // pending flag makes the next successful sync retry it.
-  window.AppBridge.applyCloudBundle(merged);
-  await set(dataRef, merged);
-  markSyncPending(false);
-}
-
+// ---------- Bootstrap Sync ----------
 async function bootstrapSync() {
-  if (bootstrapped || !window.AppBridge || !currentUser) return;
+  if (bootstrapped || !window.AppBridge) return;
   bootstrapped = true;
   syncState = 'syncing';
   emit(currentStatus());
 
   try {
-    await runOnlineSession(readMergeAndWrite);
+    await runOnlineSession(async () => {
+      const dataRef = ref(db, 'users/' + currentUser.uid + '/data');
+      const cloudSnap = await get(dataRef);
+
+      const local = window.AppBridge.getLocalBundle();
+      const localIsEmpty = Object.keys(local.earnings || {}).length === 0;
+      // Незавершений попередній запис (з минулої offline-спроби) має
+      // пріоритет над підтягуванням хмари — інакше він загубиться.
+      const pending = hasSyncPending();
+
+      if (cloudSnap.exists() && localIsEmpty && !pending) {
+        window.AppBridge.applyCloudBundle(cloudSnap.val());
+      } else {
+        await set(dataRef, local);
+        markSyncPending(false);
+      }
+    });
     lastSyncedAt = Date.now();
     syncState = 'synced';
   } catch (e) {
-    // Offline/unknown is never treated as an empty cloud. Keep local data
-    // untouched and retry later instead of making a destructive decision.
-    markSyncPending(true);
     syncState = 'sync-error';
   }
   emit(currentStatus());
@@ -219,10 +212,12 @@ async function bootstrapSync() {
 // ---------- Push Data ----------
 async function doPush() {
   if (!currentUser || !approved || !window.AppBridge) return;
+  const bundle = window.AppBridge.getLocalBundle();
   syncState = 'syncing';
   emit(currentStatus());
   try {
-    await runOnlineSession(readMergeAndWrite);
+    await runOnlineSession(() => set(ref(db, 'users/' + currentUser.uid + '/data'), bundle));
+    markSyncPending(false);
     lastSyncedAt = Date.now();
     syncState = 'synced';
   } catch (e) {
