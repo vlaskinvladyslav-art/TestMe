@@ -199,7 +199,7 @@
     <input type="file" id="importFile" accept="application/json" style="display:none;">
   </div>
   <p class="data-note" id="dataNote"></p>
-  <p class="app-footer">ShiftMe v0.7.0 Alpha · Powered by TioDeNadal</p>
+  <p class="app-footer">ShiftMe v0.9.0 Alpha · Powered by TioDeNadal</p>
 </div>
 
 <div class="overlay" id="overlay">
@@ -228,6 +228,10 @@
     </p>
 
     <p class="form-label">Виріб</p>
+    <div class="segmented-toggle entry-mode-toggle" id="entryModeToggle">
+      <button type="button" class="segmented-btn active" data-value="single">Один виріб</button>
+      <button type="button" class="segmented-btn" data-value="multi">Кілька позицій</button>
+    </div>
     <div class="product-choice" id="productChoice">
       <div class="product-btn rnd-tile" id="rndTile" title="Одноденне переміщення на інший процес">
         <span class="code">R&amp;D</span><span class="rate" id="rndTileRate"></span>

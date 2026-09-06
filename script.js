@@ -77,18 +77,43 @@ const CORE_PRODUCTS = [
   { code: '4320', rate: 14.21 }
 ];
 
+// Поки процесів як даних не існує — єдиний реальний процес зараз це
+// Балансування. Кожен новий запис штампується цим ідентифікатором, щоб
+// майбутня аналітика могла групувати по процесах з першого ж дня, а не
+// лише з моменту, коли зʼявиться справжній вибір процесу. Просто рядок,
+// перейменувати/замінити на реальну систему процесів — тривіально.
+const CURRENT_PROCESS_ID = 'balancing';
+
 // R&D: не "виріб" процесу, а фіксований виняток — одноденне переміщення
 // людини на інший процес для підмоги. Рахується по годинах (не шт) і
 // буде присутній однаково для всіх процесів, які додамо пізніше.
 const RND_PRODUCT = { code: 'R&D', rate: 210 };
+// Чи показувати перемикач "Кілька позицій" узагалі. Поки процесів як
+// даних не існує — просто вимкнено для всіх (Балансуванню це не треба).
+// Коли зʼявиться реальний вибір процесу, це стане чимось на кшталт
+// `return currentProcess().supportsMultiSelect;` — і саме тут, в одному
+// місці, а не в кожному тайлі чи модалці окремо.
+function processSupportsMultiSelect() {
+  return false;
+}
+
 function isHourlyCode(code) { return code === RND_PRODUCT.code; }
 function unitFor(code) { return isHourlyCode(code) ? 'год' : 'шт'; }
+// Один запис тепер може містити кілька позицій ({code,rate,qty} кожна) —
+// ці два хелпери рендерять їх поруч через " + ", а для звичайного,
+// найпоширенішого випадку з ОДНІЄЮ позицією виглядають так само, як і
+// раніше (жодної візуальної різниці для старих/простих записів).
+function entryCodesLabel(e) { return (e.items || []).map(it => it.code).join(' + '); }
+function entryQtyLabel(e) { return (e.items || []).map(it => it.qty + ' ' + unitFor(it.code)).join(' + '); }
 
 const STORAGE_KEY = 'shiftTrackerEarnings';
 
 let earningsData = {};   // { 'YYYY-MM-DD': [{code, qty, rate, amount}, ...] }
 let dataReady = false;
-let selectedProduct = CORE_PRODUCTS[0].code;
+// Мультивибір: кілька позицій можуть ділити одну спільну кількість
+// (напр. "Збірка + Перевірка + Чистка" на ті самі 220 шт). R&D — виняток,
+// рахується по годинах, тому несумісний з рештою (взаємовиключний вибір).
+let selectedProducts = new Set([CORE_PRODUCTS[0].code]);
 let activeDateKey = null; // date currently open in the modal
 
 // ---------- Products: 2 built-in + any the person adds themselves ----------
@@ -97,6 +122,13 @@ let activeDateKey = null; // date currently open in the modal
 const PRODUCTS_KEY = 'shiftTrackerCustomProducts';
 let customProducts = [];        // [{code, rate}]
 let showAllProducts = false;    // toggle inside the entry modal (resets each open)
+// false = один тап замінює вибір (стара поведінка, за замовчуванням —
+// саме так і далі працює "Балансування" з двома виробами 3115/4320).
+// true = тапи додають/знімають позиції в наборі — для процесів, де один
+// запис описує кілька оплачуваних дій одразу (напр. "Збірка+Перевірка+
+// Чистка" на одну спільну кількість). Вмикається явно, скидається при
+// кожному новому відкритті модалки.
+let multiSelectMode = false;
 let statsShowAllProducts = false; // toggle inside the "По виробах" stats card
 
 function loadCustomProducts() {
@@ -121,7 +153,10 @@ function deleteCustomProduct(code) {
   // logged with this code keep their own stored code/rate regardless.
   customProducts = customProducts.filter(p => p.code !== code);
   saveCustomProducts();
-  if (selectedProduct === code) selectedProduct = CORE_PRODUCTS[0].code;
+  if (selectedProducts.has(code)) {
+    selectedProducts.delete(code);
+    if (selectedProducts.size === 0) selectedProducts.add(CORE_PRODUCTS[0].code);
+  }
 }
 function allProducts() { return [RND_PRODUCT].concat(CORE_PRODUCTS, customProducts); }
 function findProduct(code) { return allProducts().find(p => p.code === code); }
@@ -216,8 +251,45 @@ function loadEarnings() {
   } catch (e) {
     earningsData = {};
   }
+  migrateEarningsShape(earningsData);
   dataReady = true;
   resumePendingPurges();
+}
+
+// ---------- One-time entry-shape migration (0.9.0) ----------
+// Older entries stored a single {code, qty, rate} directly on the entry.
+// New entries hold a list of `items` ({code, rate, qty} each), so one
+// entry can represent several paid positions sharing one quantity (e.g.
+// "Збірка + Перевірка + Чистка" on the same 220 шт, замість трьох
+// окремих записів). Converts any old-shape entry in place, in memory,
+// the moment it's loaded — from localStorage, a cloud pull, or an
+// imported backup file — so nothing that already exists gets lost or
+// needs re-entering. `amount` (the actual money total) is never touched
+// or recalculated here — only the shape describing how it was earned.
+function migrateEarningsShape(data) {
+  if (!data || typeof data !== 'object') return data;
+  Object.keys(data).forEach(key => {
+    const list = data[key];
+    if (!Array.isArray(list)) return;
+    list.forEach(e => {
+      if (!e) return;
+      if (!e.items && 'code' in e) {
+        e.items = [{ code: e.code, rate: e.rate, qty: e.qty }];
+        delete e.code;
+        delete e.qty;
+        delete e.rate;
+      }
+      // Дата раніше жила лише як ключ обʼєкта earningsData — тепер вона
+      // ще й поле самого запису, бо в Firestore запис стане окремим
+      // документом і мусить сам знати свою дату (без ключа-обгортки).
+      if (!e.date) e.date = key;
+      // Історичні записи належали єдиному процесу, що існував на той
+      // момент — підписуємо їх ним же, щоб аналітика не мала "дірки"
+      // за весь час до появи реального вибору процесу.
+      if (!e.processId) e.processId = CURRENT_PROCESS_ID;
+    });
+  });
+  return data;
 }
 
 // Every local write funnels through one of the four save*() functions
@@ -311,6 +383,7 @@ function importDataFromFile(file) {
       const parsed = JSON.parse(e.target.result);
       if (typeof parsed !== 'object' || parsed === null) throw new Error('bad shape');
       earningsData = parsed;
+      migrateEarningsShape(earningsData);
       saveEarnings();
       renderToday();
       renderCalendar();
@@ -410,8 +483,8 @@ function renderTodayEntries() {
 
   wrap.innerHTML = withIdx.map(({ e, idx }) =>
     '<div class="today-entry-row' + (e.deleted ? ' phantom' : '') + '" data-idx="' + idx + '">' +
-      '<span class="today-entry-code">' + e.code + '</span>' +
-      '<span>' + e.qty + ' ' + unitFor(e.code) + '</span>' +
+      '<span class="today-entry-code">' + entryCodesLabel(e) + '</span>' +
+      '<span>' + entryQtyLabel(e) + '</span>' +
       (e.order ? '<span class="today-entry-order">№' + e.order + '</span>' : '') +
       (fmtTime(e.time) ? '<span class="today-entry-time">' + fmtTime(e.time) + '</span>' : '') +
       '<span class="today-entry-amount">' + fmtMoney(e.amount) + '</span>' +
@@ -518,9 +591,11 @@ function computeProductTotals() {
   for (const key of Object.keys(earningsData)) {
     (earningsData[key] || []).forEach(e => {
       if (e.deleted) return;
-      if (!totals[e.code]) totals[e.code] = { qty: 0, amount: 0 };
-      totals[e.code].qty += e.qty;
-      totals[e.code].amount += e.amount;
+      (e.items || []).forEach(it => {
+        if (!totals[it.code]) totals[it.code] = { qty: 0, amount: 0 };
+        totals[it.code].qty += it.qty;
+        totals[it.code].amount += it.rate * it.qty;
+      });
     });
   }
   return totals;
@@ -980,13 +1055,13 @@ function productTile(p) {
   // Only ever used for custom products now — the two core tiles are
   // static nodes in index.html, set up once by initCoreProductTiles().
   const btn = document.createElement('div');
-  btn.className = 'product-btn' + (p.code === selectedProduct ? ' active' : '');
+  btn.className = 'product-btn' + (selectedProducts.has(p.code) ? ' active' : '');
   btn.dataset.code = p.code;
   btn.innerHTML =
     '<span class="code">' + p.code + '</span>' +
     '<span class="rate">' + p.rate.toFixed(2) + ' ₴/шт</span>' +
     '<span class="product-del" title="Видалити виріб">✕</span>';
-  btn.addEventListener('click', () => { selectedProduct = p.code; updateProductSelection(); updatePreview(); });
+  btn.addEventListener('click', () => toggleProductSelection(p.code));
   btn.querySelector('.product-del').addEventListener('click', (e) => {
     e.stopPropagation(); // don't let the click also select the tile
     if (confirm('Видалити виріб ' + p.code + ' зі списку?')) {
@@ -1001,11 +1076,31 @@ function productTile(p) {
 // Sets the two fixed built-in tiles' text once at startup and wires their
 // click handlers — they never get torn down or rebuilt after this.
 function initCoreProductTiles() {
+  const modeToggle = document.getElementById('entryModeToggle');
+  if (modeToggle) {
+    modeToggle.style.display = processSupportsMultiSelect() ? '' : 'none';
+    modeToggle.querySelectorAll('.segmented-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const wantMulti = btn.dataset.value === 'multi';
+        if (wantMulti === multiSelectMode) return;
+        multiSelectMode = wantMulti;
+        modeToggle.querySelectorAll('.segmented-btn').forEach(b => b.classList.toggle('active', b === btn));
+        if (!multiSelectMode && selectedProducts.size > 1) {
+          // Повернення в "Один виріб" з кількома вже вибраними — лишаємо
+          // тільки перший, щоб не залишити застосунок у неоднозначному стані.
+          selectedProducts = new Set([selectedProducts.values().next().value]);
+          updateProductSelection();
+          updatePreview();
+        }
+      });
+    });
+  }
+
   const rndTile = document.getElementById('rndTile');
   if (rndTile) {
     document.getElementById('rndTileRate').textContent = RND_PRODUCT.rate.toFixed(2) + ' ₴/год';
     rndTile.dataset.code = RND_PRODUCT.code;
-    rndTile.addEventListener('click', () => { selectedProduct = RND_PRODUCT.code; updateProductSelection(); updatePreview(); });
+    rndTile.addEventListener('click', () => toggleProductSelection(RND_PRODUCT.code));
   }
 
   const tileIds = ['coreTile0', 'coreTile1'];
@@ -1015,7 +1110,7 @@ function initCoreProductTiles() {
     tile.dataset.code = p.code;
     document.getElementById(tileIds[i] + 'Code').textContent = p.code;
     document.getElementById(tileIds[i] + 'Rate').textContent = p.rate.toFixed(2) + ' ₴/шт';
-    tile.addEventListener('click', () => { selectedProduct = p.code; updateProductSelection(); updatePreview(); });
+    tile.addEventListener('click', () => toggleProductSelection(p.code));
   });
 
   document.getElementById('productToggleTile').addEventListener('click', () => {
@@ -1038,7 +1133,7 @@ function initCoreProductTiles() {
     }
     customProducts.push({ code, rate });
     saveCustomProducts();
-    selectedProduct = code;
+    selectedProducts = new Set([code]);
     showAllProducts = true;
     closeAddProductForm();
     renderProductChoice();
@@ -1046,11 +1141,32 @@ function initCoreProductTiles() {
   });
 }
 
-// Updates just the "active" highlight on whichever tile matches the
+// Спільна логіка для всіх тайлів (core, R&D, кастомні). У режимі "Один
+// виріб" (за замовчуванням) тап ЗАМІНЮЄ вибір — так само, як завжди
+// працював застосунок, жодної різниці для звичайного одно-виробного
+// запису. У режимі "Кілька позицій" тап додає/знімає позицію з набору.
+// R&D завжди замінює вибір повністю незалежно від режиму — інша одиниця
+// виміру (год замість шт) робить його несумісним з рештою.
+function toggleProductSelection(code) {
+  if (isHourlyCode(code)) {
+    selectedProducts = selectedProducts.has(code) ? new Set() : new Set([code]);
+  } else if (!multiSelectMode) {
+    selectedProducts = new Set([code]);
+  } else {
+    const next = new Set(selectedProducts);
+    Array.from(next).forEach(c => { if (isHourlyCode(c)) next.delete(c); });
+    if (next.has(code)) next.delete(code); else next.add(code);
+    selectedProducts = next;
+  }
+  updateProductSelection();
+  updatePreview();
+}
+
+// Updates just the "active" highlight on every tile whose code is in the
 // current selection — no rebuild, just a class toggle.
 function updateProductSelection() {
   document.querySelectorAll('#productChoice .product-btn[data-code]').forEach(tile => {
-    tile.classList.toggle('active', tile.dataset.code === selectedProduct);
+    tile.classList.toggle('active', selectedProducts.has(tile.dataset.code));
   });
 }
 
@@ -1091,17 +1207,18 @@ function closeAddProductForm() {
 
 function updatePreview() {
   const qty = parseFloat(document.getElementById('qtyInput').value);
-  const product = findProduct(selectedProduct);
+  const products = Array.from(selectedProducts).map(findProduct).filter(Boolean);
   const preview = document.getElementById('previewLine');
   const submitBtn = document.getElementById('submitEntry');
   const qtyLabel = document.getElementById('qtyLabel');
   const qtyInput = document.getElementById('qtyInput');
-  const hourly = !!product && isHourlyCode(product.code);
+  const hourly = products.some(p => isHourlyCode(p.code));
   if (qtyLabel) qtyLabel.textContent = hourly ? 'Кількість годин' : 'Кількість, шт';
   if (qtyInput) qtyInput.placeholder = hourly ? 'напр. 8' : 'напр. 173';
-  if (qty > 0 && product) {
-    const amount = qty * product.rate;
-    preview.innerHTML = qty + ' ' + unitFor(product.code) + ' × ' + product.rate.toFixed(2) + ' ₴ = <b>' + fmtMoney(amount) + '</b>';
+  if (qty > 0 && products.length > 0) {
+    const total = products.reduce((s, p) => s + qty * p.rate, 0);
+    const lines = products.map(p => qty + ' ' + unitFor(p.code) + ' × ' + p.rate.toFixed(2) + ' ₴ (' + p.code + ')');
+    preview.innerHTML = lines.join(' + ') + ' = <b>' + fmtMoney(total) + '</b>';
     submitBtn.disabled = false;
   } else {
     preview.textContent = '';
@@ -1121,24 +1238,28 @@ function renderDayProductSummary() {
   }
 
   // Detail: group by (code, order) — same code but different order stays
-  // separate, same code+order from multiple entries gets summed together.
+  // separate, same code+order from multiple entries/items gets summed together.
   const groups = {};
   const groupOrder = [];
   entries.forEach(e => {
-    const gKey = e.code + '|' + (e.order || '');
-    if (!(gKey in groups)) {
-      groups[gKey] = { code: e.code, order: e.order || null, qty: 0 };
-      groupOrder.push(gKey);
-    }
-    groups[gKey].qty += e.qty;
+    (e.items || []).forEach(it => {
+      const gKey = it.code + '|' + (e.order || '');
+      if (!(gKey in groups)) {
+        groups[gKey] = { code: it.code, order: e.order || null, qty: 0 };
+        groupOrder.push(gKey);
+      }
+      groups[gKey].qty += it.qty;
+    });
   });
 
   // Total: per product code across all orders, for a quick day-end tally.
   const codeTotals = {};
   const codeOrder = [];
   entries.forEach(e => {
-    if (!(e.code in codeTotals)) { codeTotals[e.code] = 0; codeOrder.push(e.code); }
-    codeTotals[e.code] += e.qty;
+    (e.items || []).forEach(it => {
+      if (!(it.code in codeTotals)) { codeTotals[it.code] = 0; codeOrder.push(it.code); }
+      codeTotals[it.code] += it.qty;
+    });
   });
 
   const groupsHtml = groupOrder.map(gKey => {
@@ -1176,8 +1297,11 @@ function renderEntryList() {
       const row = document.createElement('div');
       row.className = 'entry-row' + (e.deleted ? ' phantom' : '');
       const remainingMs = e.deleted ? Math.max(0, PURGE_DELAY_MS - (Date.now() - (e.deletedAt || 0))) : 0;
+      const rateLabel = (e.items && e.items.length === 1)
+        ? e.items[0].rate.toFixed(2) + ' ₴/' + unitFor(e.items[0].code) + (e.order ? ' · Зам. №' + e.order : '')
+        : (e.order ? 'Зам. №' + e.order : '');
       row.innerHTML =
-        '<div class="entry-info"><b>' + e.code + '</b><span> · ' + e.qty + ' ' + unitFor(e.code) + '</span><span class="entry-rate">' + (e.order ? 'Зам. №' + e.order + ' · ' : '') + e.rate.toFixed(2) + ' ₴/' + unitFor(e.code) + '</span></div>' +
+        '<div class="entry-info"><b>' + entryCodesLabel(e) + '</b><span> · ' + entryQtyLabel(e) + '</span><span class="entry-rate">' + rateLabel + '</span></div>' +
         '<div class="entry-row-right">' +
           (fmtTime(e.time) ? '<span class="entry-time">' + fmtTime(e.time) + '</span>' : '') +
           '<div class="entry-row-bottom"><span class="entry-amount">' + fmtMoney(e.amount) + '</span>' +
@@ -1258,6 +1382,15 @@ function openModal(y, m, d) {
   document.getElementById('productAddForm').style.display = 'none';
   document.getElementById('productChoice').style.display = '';
   showAllProducts = false;
+  multiSelectMode = false;
+  selectedProducts = new Set([selectedProducts.values().next().value || CORE_PRODUCTS[0].code]);
+  const entryModeToggle = document.getElementById('entryModeToggle');
+  if (entryModeToggle) {
+    entryModeToggle.style.display = processSupportsMultiSelect() ? '' : 'none';
+    entryModeToggle.querySelectorAll('.segmented-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.value === 'single');
+    });
+  }
   renderProductChoice();
   updatePreview();
   renderEntryList();
@@ -1319,14 +1452,15 @@ document.getElementById('qtyInput').addEventListener('input', updatePreview);
 
 document.getElementById('submitEntry').addEventListener('click', () => {
   const qty = parseFloat(document.getElementById('qtyInput').value);
-  const product = findProduct(selectedProduct);
+  const products = Array.from(selectedProducts).map(findProduct).filter(Boolean);
   const order = document.getElementById('orderInput').value.trim();
   const [ey, em, ed] = activeDateKey.split('-').map(Number);
-  if (!(qty > 0) || !product || getStatus(ey, em - 1, ed) !== 'work') return;
+  if (!(qty > 0) || products.length === 0 || getStatus(ey, em - 1, ed) !== 'work') return;
 
-  const amount = Math.round(qty * product.rate * 100) / 100;
+  const items = products.map(p => ({ code: p.code, rate: p.rate, qty: qty }));
+  const amount = Math.round(items.reduce((s, it) => s + it.rate * it.qty, 0) * 100) / 100;
   if (!earningsData[activeDateKey]) earningsData[activeDateKey] = [];
-  earningsData[activeDateKey].push({ code: product.code, qty: qty, rate: product.rate, amount: amount, order: order || null, time: new Date().toISOString() });
+  earningsData[activeDateKey].push({ date: activeDateKey, processId: CURRENT_PROCESS_ID, items: items, amount: amount, order: order || null, time: new Date().toISOString() });
 
   const ok = saveEarnings();
   document.getElementById('saveNote').textContent = ok ? 'Збережено' : 'Не вдалося зберегти, спробуйте ще раз';
@@ -1409,6 +1543,7 @@ window.AppBridge = {
   },
   applyCloudBundle(bundle) {
     earningsData = (bundle && bundle.earnings) || {};
+    migrateEarningsShape(earningsData);
     goalsData = (bundle && bundle.goals) || {};
     customProducts = (bundle && bundle.customProducts) || [];
     leaveDays = (bundle && bundle.leaveDays) || {};
