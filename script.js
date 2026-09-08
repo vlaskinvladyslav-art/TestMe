@@ -21,9 +21,12 @@ function loadShiftConfig() {
     return {
       brigade: raw.brigade === 2 ? 2 : 1,
       shiftType: raw.shiftType === 'night' ? 'night' : 'day',
+      // Заготовка під майбутню статистику в іншому застосунку: поки що
+      // лише статор/ротор, без впливу на розрахунок календаря.
+      line: (raw.line === 'stator' || raw.line === 'rotor') ? raw.line : null,
     };
   } catch (e) {
-    return { brigade: 1, shiftType: 'day' };
+    return { brigade: 1, shiftType: 'day', line: null };
   }
 }
 let shiftConfig = loadShiftConfig();
@@ -32,6 +35,7 @@ function saveShiftConfig(next) {
   shiftConfig = {
     brigade: next.brigade === 2 ? 2 : 1,
     shiftType: next.shiftType === 'night' ? 'night' : 'day',
+    line: (next.line === 'stator' || next.line === 'rotor') ? next.line : null,
   };
   try { localStorage.setItem(SHIFT_CONFIG_KEY, JSON.stringify(shiftConfig)); } catch (e) { /* сховище недоступне */ }
   if (window.CloudSync && typeof window.CloudSync.updateShiftConfig === 'function') {
@@ -115,6 +119,7 @@ let dataReady = false;
 // рахується по годинах, тому несумісний з рештою (взаємовиключний вибір).
 let selectedProducts = new Set([CORE_PRODUCTS[0].code]);
 let activeDateKey = null; // date currently open in the modal
+let entriesEditMode = false; // чи показані кнопки видалення в списку записів дня
 
 // ---------- Products: 2 built-in + any the person adds themselves ----------
 // Extra products stay hidden behind a "показати всі" toggle so the modal
@@ -323,7 +328,7 @@ function saveEarnings() {
 // every other aggregate above already skip flagged entries, so a phantom
 // entry stops "counting" the instant it's marked, well before it's
 // actually purged from storage.
-const PURGE_DELAY_MS = 15000; // how long an entry stays recoverable (0.8.2: 10s → 15s)
+const PURGE_DELAY_MS = 10000; // how long an entry stays recoverable (0.8.3: 15s → 10s, per updated design)
 
 function scheduleEntryPurge(key, entry, delay) {
   setTimeout(() => {
@@ -1285,9 +1290,27 @@ function renderDayProductSummary() {
     '<div class="day-summary-totals">' + totalsHtml + '</div>';
 }
 
+function updateEntriesEditButton() {
+  const btn = document.getElementById('entriesEditBtn');
+  if (!btn) return;
+  const entries = earningsData[activeDateKey] || [];
+  const hasActiveEntries = entries.some(e => !e.deleted);
+  if (!hasActiveEntries) entriesEditMode = false;
+  btn.style.display = hasActiveEntries ? '' : 'none';
+  btn.textContent = entriesEditMode ? '✓ Готово' : '✎ Редагувати записи';
+  btn.classList.toggle('active', entriesEditMode);
+}
+
+document.getElementById('entriesEditBtn').addEventListener('click', () => {
+  entriesEditMode = !entriesEditMode;
+  updateEntriesEditButton();
+  renderEntryList();
+});
+
 function renderEntryList() {
   const list = document.getElementById('entryList');
   const entries = earningsData[activeDateKey] || [];
+  updateEntriesEditButton();
   list.innerHTML = '';
   renderDayProductSummary();
   if (entries.length === 0) {
@@ -1307,7 +1330,7 @@ function renderEntryList() {
           '<div class="entry-row-bottom"><span class="entry-amount">' + fmtMoney(e.amount) + '</span>' +
           (e.deleted
             ? '<button class="entry-restore" data-idx="' + idx + '" title="Скасувати видалення">↺</button>'
-            : '<button class="entry-del" data-idx="' + idx + '">✕</button>') +
+            : (entriesEditMode ? '<button class="entry-del" data-idx="' + idx + '">✕</button>' : '')) +
           '</div>' +
         '</div>' +
         (e.deleted ? '<div class="phantom-timer-track"><div class="delete-line-left" data-remaining="' + remainingMs + '"></div><div class="delete-line-right" data-remaining="' + remainingMs + '"></div></div>' : '');
@@ -1354,14 +1377,19 @@ function renderEntryList() {
 
     // Дві лінії ростуть від країв до центру за час, що лишився до
     // остаточного видалення — зустрічаються посередині рівно в момент
-    // покупки. Той самий подвійний rAF-трюк, що й раніше: перший кадр
-    // фіксує стартовий стан (0%), другий — стартує саму transition.
+    // покупки. Явний форсований reflow (читання offsetWidth) між
+    // фіксацією стартового стану (0%) і вмиканням transition —
+    // надійніше за подвійний requestAnimationFrame: у деяких WebKit
+    // движках (зокрема iOS PWA в standalone-режимі) перший кадр rAF
+    // іноді "зʼїдається", і замість плавної анімації відразу
+    // застосовується кінцевий стан без проміжних кадрів.
     list.querySelectorAll('.delete-line-left, .delete-line-right').forEach(line => {
       const remaining = parseInt(line.getAttribute('data-remaining'), 10) || 0;
+      line.style.transitionDuration = '0s';
+      line.style.width = '0%';
+      void line.offsetWidth; // форсований reflow — фіксує стартовий стан
       line.style.transitionDuration = remaining + 'ms';
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => { line.style.width = '50%'; });
-      });
+      requestAnimationFrame(() => { line.style.width = '50%'; });
     });
   }
   document.getElementById('dayTotal').textContent = fmtMoney(dayTotal(activeDateKey));
@@ -1369,6 +1397,8 @@ function renderEntryList() {
 
 function openModal(y, m, d) {
   activeDateKey = dateKey(y, m, d);
+  entriesEditMode = false;
+  updateEntriesEditButton();
   const status = getStatus(y, m, d);
   const dt = new Date(y, m, d);
   document.getElementById('modalTitle').textContent = d + ' ' + monthNames[m] + ' ' + y;
@@ -1408,10 +1438,9 @@ function updateLeaveToggleButton(status) {
   }
   btn.style.display = '';
   const leave = isLeaveDay(activeDateKey);
-  // Заглушка під іконку: <img class="leave-btn-icon" src="leaveDay.png" alt="">
   btn.innerHTML = leave
     ? '✕ Скасувати «вихідний за свій рахунок»'
-    : '<img class="leave-btn-icon" src="leaveDay.png" alt=""> Позначити вихідним за свій рахунок';
+    : 'Позначити вихідним за свій рахунок';
   btn.classList.toggle('active', leave);
 }
 
@@ -1566,7 +1595,7 @@ window.AppBridge = {
   },
   applyCloudShiftConfig(cfg) {
     if (!cfg) return;
-    saveShiftConfig({ brigade: cfg.brigade, shiftType: cfg.shiftType });
+    saveShiftConfig({ brigade: cfg.brigade, shiftType: cfg.shiftType, line: cfg.line });
   },
 };
 
@@ -1717,28 +1746,46 @@ function initCloudSyncUI() {
     });
   }
 
-  // "Лінія роботи" / "Процес" — поки що суто локальні поля (окрема
-  // заготовка під майбутні публічні профілі), не йдуть у Firebase.
+  // "Лінія роботи" / "Операція" / "Процес" — поки що суто локальні поля
+  // (окрема заготовка під майбутні публічні профілі), не йдуть у Firebase.
+  // ("Лінія процесу" — статор/ротор — це окреме поле, живе в shiftConfig
+  // і вже синхронізується з хмарою, тому не чіпаємо його тут.)
   const lineInput = document.getElementById('profileLineInput');
-  const processInput = document.getElementById('profileProcessInput');
+  const operationInput = document.getElementById('profileOperationInput');
+  const processSelect = document.getElementById('profileProcessSelect');
   const META_KEY = 'shiftTrackerProfileMeta';
 
   try {
     const saved = JSON.parse(localStorage.getItem(META_KEY) || '{}');
     if (lineInput) lineInput.value = saved.line || '';
-    if (processInput) processInput.value = saved.process || '';
+    if (operationInput) operationInput.value = saved.operation || '';
+    // Наразі в списку лише один варіант ("Балансування") — просто лишаємо
+    // його вибраним; коли додасться більше варіантів, збережене
+    // значення підхопиться само, якщо воно все ще є серед опцій.
+    if (processSelect && saved.process) processSelect.value = saved.process;
   } catch (e) { /* ігноруємо биту локальну сесію */ }
+
+  // Лише цифри — жодних символів, пробілів чи букв.
+  [lineInput, operationInput].forEach((input) => {
+    if (!input) return;
+    input.addEventListener('input', () => {
+      const digitsOnly = input.value.replace(/[^0-9]/g, '');
+      if (digitsOnly !== input.value) input.value = digitsOnly;
+    });
+  });
 
   function saveProfileMeta() {
     try {
       localStorage.setItem(META_KEY, JSON.stringify({
         line: lineInput.value.trim(),
-        process: processInput.value.trim(),
+        operation: operationInput.value.trim(),
+        process: processSelect ? processSelect.value : '',
       }));
     } catch (e) { /* локальне сховище недоступне — просто нічого не зберігаємо */ }
   }
   if (lineInput) lineInput.addEventListener('change', saveProfileMeta);
-  if (processInput) processInput.addEventListener('change', saveProfileMeta);
+  if (operationInput) operationInput.addEventListener('change', saveProfileMeta);
+  if (processSelect) processSelect.addEventListener('change', saveProfileMeta);
 }
 
 
@@ -1801,36 +1848,33 @@ function initAppNav() {
 
 // ---------- Shift settings (Бригада / Тип зміни) ----------
 // Джерело правди — shiftConfig (script.js, синхронізовано з Firebase
-// через CloudSync.updateShiftConfig). Ця функція лише малює поточний
-// стан у двох місцях (Налаштування — перемикачі, Профіль — read-only
-// чіпи) і слухає зміни, щоб обидва місця й сам календар лишались
-// синхронними, звідки б зміна не прийшла (клік тут, чи підтягнута
-// конфігурація з хмари при вході).
+// через CloudSync.updateShiftConfig). Ця функція малює поточний стан
+// у двох місцях (Налаштування — перемикачі Бригади/Типу зміни, Профіль —
+// read-only значення тих самих полів + сам вибір "Лінії процесу") і
+// слухає зміни, щоб усі місця й сам календар лишались синхронними,
+// звідки б зміна не прийшла (клік тут, чи підтягнута конфігурація
+// з хмари при вході).
 function initShiftSettings() {
   const brigadeToggle = document.getElementById('brigadeToggle');
   const shiftTypeToggle = document.getElementById('shiftTypeToggle');
-  const chipProcess = document.getElementById('profileShiftProcess');
+  const lineSelect = document.getElementById('profileProcessLineSelect');
   const chipBrigade = document.getElementById('profileShiftBrigade');
   const chipType = document.getElementById('profileShiftType');
-  const processInput = document.getElementById('profileProcessInput');
   if (!brigadeToggle || !shiftTypeToggle) return;
 
   function paintToggle(toggleEl, value) {
+    if (!toggleEl) return;
     toggleEl.querySelectorAll('.segmented-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.value === String(value));
     });
   }
 
-  function paintChips() {
-    if (chipBrigade) chipBrigade.textContent = shiftConfig.brigade === 2 ? '2 зміна' : '1 зміна';
-    if (chipType) chipType.textContent = shiftConfig.shiftType === 'night' ? 'Нічна зміна' : 'Денна зміна';
-    if (chipProcess) chipProcess.textContent = (processInput && processInput.value.trim()) || '—';
-  }
-
   function render() {
     paintToggle(brigadeToggle, shiftConfig.brigade);
     paintToggle(shiftTypeToggle, shiftConfig.shiftType);
-    paintChips();
+    if (chipBrigade) chipBrigade.textContent = shiftConfig.brigade === 2 ? '2 зміна' : '1 зміна';
+    if (chipType) chipType.textContent = shiftConfig.shiftType === 'night' ? 'Нічна зміна' : 'Денна зміна';
+    if (lineSelect) lineSelect.value = shiftConfig.line || '';
   }
 
   render();
@@ -1839,20 +1883,21 @@ function initShiftSettings() {
     btn.addEventListener('click', () => {
       const brigade = btn.dataset.value === '2' ? 2 : 1;
       if (brigade === shiftConfig.brigade) return;
-      saveShiftConfig({ brigade: brigade, shiftType: shiftConfig.shiftType });
+      saveShiftConfig({ brigade: brigade, shiftType: shiftConfig.shiftType, line: shiftConfig.line });
     });
   });
   shiftTypeToggle.querySelectorAll('.segmented-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const shiftType = btn.dataset.value === 'night' ? 'night' : 'day';
       if (shiftType === shiftConfig.shiftType) return;
-      saveShiftConfig({ brigade: shiftConfig.brigade, shiftType: shiftType });
+      saveShiftConfig({ brigade: shiftConfig.brigade, shiftType: shiftType, line: shiftConfig.line });
     });
   });
-
-  // "Процес" у профілі так само лише дзеркалиться в чіп — сам вхідний
-  // текст лишається редагованим тільки нижче, в profileProcessInput.
-  if (processInput) processInput.addEventListener('input', paintChips);
+  if (lineSelect) {
+    lineSelect.addEventListener('change', () => {
+      saveShiftConfig({ brigade: shiftConfig.brigade, shiftType: shiftConfig.shiftType, line: lineSelect.value || null });
+    });
+  }
 
   window.addEventListener('shiftconfig:change', () => {
     render();

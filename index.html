@@ -154,8 +154,8 @@
       <div class="dev-notice-body-inner">
         <p class="dev-notice-line">Застосунок перебуває в активній розробці і постійно додається новий функціонал.</p>
         <p class="dev-notice-line">Через це окремі можливості можуть працювати нестабільно — дякуємо за розуміння!</p>
-        <p class="dev-notice-line dev-notice-cta">Хочете вплинути на розвиток проєкту? Переходьте в наш <a href="https://t.me/+osEJ4fUs8AZhMTUy" target="_blank" rel="noopener noreferrer">Telegram-чат</a>.</p>
-        <p class="dev-notice-line">Діліться відгуками, а також пропонуйте власні фічі.</p>
+        <p class="dev-notice-line dev-notice-cta">Бажаєте підтримати розвиток проєкту? Ви можете подякувати автору за. <a href="https://send.monobank.ua/jar/5hP8Kwt2f4" target="_blank" rel="noopener noreferrer">посиланням на банку Monobank</a>.</p>
+        <p class="dev-notice-line dev-notice-cta">Завжди відкритий до ваших ідей та пропозицій. Якщо є думки, як зробити застосунок кращим - <a href="https://t.me/ivladisly" target="_blank" rel="noopener noreferrer">сміливо пишіть</a></p>
       </div>
     </div>
   </div>
@@ -211,6 +211,7 @@
     </div>
     <p class="modal-status" id="modalStatus"></p>
     <button class="leave-toggle-btn" id="leaveToggleBtn" type="button"></button>
+    <button class="entries-edit-btn" id="entriesEditBtn" type="button">✎ Редагувати записи</button>
 
     <div class="entry-list" id="entryList"></div>
     <div class="day-product-summary" id="dayProductSummary"></div>
@@ -349,36 +350,45 @@
         <span class="profile-approved-badge">Доступ підтверджено</span>
       </div>
 
-      <!-- Read-only — значення підтягуються з "Налаштування" (Бригада/Тип
-           зміни) і з поля "Процес" нижче. Тут їх не можна редагувати
-           напряму — захист від випадкових змін і заготовка під майбутній
-           перегляд профілів інших робітників. -->
-      <div class="profile-shift-info">
-        <div class="profile-shift-chip">
-          <span class="profile-shift-chip-label">Процес</span>
-          <span class="profile-shift-chip-value" id="profileShiftProcess">—</span>
+      <!-- Бригада/Тип зміни — read-only, редагуються лише в "Налаштуваннях"
+           (вони впливають на розфарбовку календаря, тож захищені від
+           випадкової зміни тут). Процес/Лінія процесу/Лінія
+           роботи/Операція — описові поля співробітника, редагуються прямо
+           тут; заготовка під майбутній перегляд профілів інших
+           робітників. -->
+      <div class="profile-info-grid">
+        <div class="profile-info-cell">
+          <span class="profile-info-label">Процес</span>
+          <select class="profile-info-select" id="profileProcessSelect">
+            <option value="balancing">Балансування</option>
+          </select>
         </div>
-        <div class="profile-shift-chip">
-          <span class="profile-shift-chip-label">Бригада</span>
-          <span class="profile-shift-chip-value" id="profileShiftBrigade">1 зміна</span>
+        <div class="profile-info-cell">
+          <span class="profile-info-label">Лінія процесу</span>
+          <select class="profile-info-select" id="profileProcessLineSelect">
+            <option value="">—</option>
+            <option value="stator">Статор</option>
+            <option value="rotor">Ротор</option>
+          </select>
         </div>
-        <div class="profile-shift-chip">
-          <span class="profile-shift-chip-label">Тип зміни</span>
-          <span class="profile-shift-chip-value" id="profileShiftType">Денна</span>
+        <div class="profile-info-cell profile-info-cell-readonly">
+          <span class="profile-info-label">Бригада</span>
+          <span class="profile-info-value" id="profileShiftBrigade">1 зміна</span>
+        </div>
+        <div class="profile-info-cell profile-info-cell-readonly">
+          <span class="profile-info-label">Тип зміни</span>
+          <span class="profile-info-value" id="profileShiftType">Денна</span>
+        </div>
+        <div class="profile-info-cell">
+          <span class="profile-info-label">Лінія роботи</span>
+          <input type="text" inputmode="numeric" pattern="[0-9]*" id="profileLineInput" placeholder="—" maxlength="10">
+        </div>
+        <div class="profile-info-cell">
+          <span class="profile-info-label">Операція</span>
+          <input type="text" inputmode="numeric" pattern="[0-9]*" id="profileOperationInput" placeholder="—" maxlength="10">
         </div>
       </div>
-
-      <div class="profile-field-group">
-        <label class="profile-field">
-          <span>Лінія роботи</span>
-          <input type="text" id="profileLineInput" placeholder="напр. Лінія 3" maxlength="40">
-        </label>
-        <label class="profile-field">
-          <span>Процес</span>
-          <input type="text" id="profileProcessInput" placeholder="напр. Складання" maxlength="40">
-        </label>
-        <p class="profile-field-note">Поки що зберігається лише на цьому пристрої. Синхронізація цих полів (і публічні профілі для перегляду) — у планах.</p>
-      </div>
+      <p class="profile-field-note">Лінія процесу, Бригада і Тип зміни синхронізуються з хмарою. Процес, Лінія роботи та Операція поки зберігаються лише на цьому пристрої.</p>
 
       <div class="profile-actions">
         <button class="data-btn" id="cloudForceSyncBtn" type="button">🔄 Синхронізувати зараз</button>
