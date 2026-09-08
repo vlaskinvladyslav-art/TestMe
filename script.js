@@ -555,9 +555,7 @@ function renderCalendar() {
 
     let inner = day;
     if (leave) {
-      // Заглушка під іконку дня "за свій рахунок": постав leaveDay.png у
-      // корінь репозиторію поруч з workDay.png/offDay.png/calendar.png.
-      inner += '<img class="leave-mark" src="leaveDay.png" alt="">';
+      inner += '<span class="dot"></span>';
     } else if (total > 0) {
       inner += '<span class="earn-tag">' + fmtMoneyShort(total) + '₴</span>';
     } else {

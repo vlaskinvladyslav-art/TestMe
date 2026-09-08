@@ -384,12 +384,6 @@ h1 span { color: var(--work); }
   margin-top: 1px;
   letter-spacing: -0.02em;
 }
-.day-cell .leave-mark {
-  width: 10px;
-  height: 10px;
-  object-fit: contain;
-  margin-top: 1px;
-}
 
 .legend {
   display: flex;
@@ -1033,17 +1027,7 @@ h1 span { color: var(--work); }
   display: flex;
   gap: 10px;
   overflow-x: auto;
-  padding: 14px 4px 6px;
-}
-.goal-upcoming::before {
-  content: '';
-  position: absolute;
-  top: 19px;
-  left: 10px;
-  right: 10px;
-  height: 1px;
-  background: linear-gradient(90deg, var(--line), transparent 92%);
-  z-index: 0;
+  padding: 16px 8px 16px;
 }
 .goal-chip {
   position: relative;
@@ -1060,29 +1044,20 @@ h1 span { color: var(--work); }
   animation: goalChipIn 0.4s cubic-bezier(0.22, 0.9, 0.32, 1) forwards;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
-.goal-chip::before {
-  /* Timeline dot marking this day's position on the connecting line */
-  content: '';
-  position: absolute;
-  top: -8px;
-  left: 50%;
-  width: 5px;
-  height: 5px;
-  margin-left: -2.5px;
-  border-radius: 50%;
-  background: var(--line);
-}
 .goal-chip.chip-today {
   border-color: var(--money);
   background: rgba(244, 201, 93, 0.08);
 }
-.goal-chip.chip-today::before { background: var(--money); }
-.goal-chip.chip-done::before { background: var(--off); }
 
 /* The glow itself never changes shape or blur — only its opacity animates,
    which is smooth on every device. Animating box-shadow's blur radius
    directly (the old approach) made browsers pop between "no shadow" and
-   "full shadow" without a clean tween, which read as a square flash. */
+   "full shadow" without a clean tween, which read as a square flash.
+   The container needs overflow-x:auto for horizontal scroll, and per the
+   CSS spec that silently forces overflow-y to "auto" too (there's no way
+   to keep one axis scrollable and the other visible on the same element)
+   — so the generous vertical padding above is what actually keeps this
+   glow from getting clipped, not an overflow override. */
 .goal-chip.chip-today::after {
   content: '';
   position: absolute;
@@ -1730,8 +1705,12 @@ h1 span { color: var(--work); }
 .product-btn.active .rate { color: var(--money); }
 
 /* R&D — не звичайний виріб, а фіксований виняток (одноденна підмога на
-   іншому процесі), тому стоїть окремим рядком над рештою тайлів і має
-   інший акцентний колір, щоб його не сплутати зі звичайним виробом. */
+   іншому процесі), тому стоїть окремим рядком над рештою тайлів. Колір
+   навмисно приглушений (не чистий var(--work)) — це не годинник "весь
+   день на цьому процесі", а рідкісний виняток, тож не повинен кричати
+   яскравіше за звичайні тайли. Поки не вибрано — компактний і по
+   центру; при виборі (клас .active, той самий, що й у звичайних
+   тайлів) плавно розширюється на всю ширину рядка. */
 .product-btn.rnd-tile {
   grid-column: 1 / -1;
   display: flex;
@@ -1739,16 +1718,20 @@ h1 span { color: var(--work); }
   justify-content: center;
   gap: 10px;
   padding: 10px 8px;
-  border-color: rgba(255,140,66,0.5);
-  background: rgba(255,140,66,0.08);
+  border-color: rgba(255, 140, 66, 0.25);
+  background: rgba(255, 140, 66, 0.05);
+  width: 48%;
+  margin: 0 auto;
+  transition: width 0.35s cubic-bezier(0.22, 0.9, 0.32, 1), border-color 0.2s ease, background 0.2s ease;
 }
 .product-btn.rnd-tile .code { font-size: 14px; }
-.product-btn.rnd-tile .rate { color: var(--work); }
+.product-btn.rnd-tile .rate { color: #c9915f; }
 .product-btn.rnd-tile.active {
-  border-color: var(--work);
-  background: rgba(255,140,66,0.16);
+  width: 100%;
+  border-color: rgba(255, 140, 66, 0.4);
+  background: rgba(255, 140, 66, 0.1);
 }
-.product-btn.rnd-tile.active .rate { color: var(--work); }
+.product-btn.rnd-tile.active .rate { color: #c9915f; }
 
 .product-del {
   position: absolute;
@@ -1823,13 +1806,6 @@ h1 span { color: var(--work); }
   font-size: 12.5px;
   text-align: center;
   margin-bottom: 4px;
-}
-.leave-note-icon {
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
-  vertical-align: middle;
-  margin-right: 4px;
 }
 .modal.day-off .form-label,
 .modal.day-off .product-choice,
