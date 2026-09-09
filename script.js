@@ -1423,7 +1423,7 @@ function openModal(y, m, d) {
   updatePreview();
   renderEntryList();
   document.getElementById('overlay').classList.add('open');
-  document.body.classList.add('day-modal-open');
+  lockBodyScroll('day-modal-open');
 }
 
 // Shows/labels the "вихідний за свій рахунок" toggle — only relevant on
@@ -1468,7 +1468,7 @@ document.getElementById('leaveToggleBtn').addEventListener('click', () => {
 
 function closeModal() {
   document.getElementById('overlay').classList.remove('open');
-  document.body.classList.remove('day-modal-open');
+  unlockBodyScroll('day-modal-open');
 }
 
 document.getElementById('modalClose').addEventListener('click', closeModal);
@@ -1787,6 +1787,33 @@ function initCloudSyncUI() {
 }
 
 
+// ---------- Body scroll lock ----------
+// overflow:hidden на body саме по собі НЕ блокує специфічну поведінку
+// iOS Safari/PWA: коли зʼявляється клавіатура, браузер сам прокручує
+// document, щоб підвести сфокусоване поле під клавіатуру — і робить це
+// незалежно від overflow:hidden, оскільки це не скрол від дотику
+// користувача, а вбудована поведінка браузера при фокусі. Єдиний
+// надійний спосіб — фізично зафіксувати body через position:fixed,
+// тоді йому просто нема куди "поїхати", а після закриття — повернути
+// збережену позицію скролу назад.
+let bodyScrollLockY = 0;
+function lockBodyScroll(className) {
+  bodyScrollLockY = window.scrollY || window.pageYOffset || 0;
+  document.body.style.position = 'fixed';
+  document.body.style.top = '-' + bodyScrollLockY + 'px';
+  document.body.style.left = '0';
+  document.body.style.right = '0';
+  document.body.classList.add(className);
+}
+function unlockBodyScroll(className) {
+  document.body.classList.remove(className);
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.left = '';
+  document.body.style.right = '';
+  window.scrollTo(0, bodyScrollLockY);
+}
+
 // ---------- Bottom nav + full-screen windows ----------
 // Три вікна ("Профіль" / "Налаштування" / "Топ") — постійні DOM-вузли,
 // які лише перемикають клас .open (див. CSS: opacity/transform, той
@@ -1802,14 +1829,14 @@ function initAppNav() {
   function closeAllWindows() {
     windows.forEach(w => w.classList.remove('open'));
     buttons.forEach(b => b.classList.remove('active'));
-    document.body.classList.remove('nav-window-open');
+    unlockBodyScroll('nav-window-open');
     activeWindow = null;
   }
 
   function openWindow(name) {
     windows.forEach(w => w.classList.toggle('open', w.dataset.window === name));
     buttons.forEach(b => b.classList.toggle('active', b.dataset.window === name));
-    document.body.classList.add('nav-window-open');
+    lockBodyScroll('nav-window-open');
     activeWindow = name;
   }
 
