@@ -1047,35 +1047,24 @@ h1 span { color: var(--work); }
 .goal-chip.chip-today {
   border-color: var(--money);
   background: rgba(244, 201, 93, 0.08);
+  animation: goalChipPulse 2.4s ease-in-out 0.5s infinite;
 }
 
-/* The glow itself never changes shape or blur — only its opacity animates,
-   which is smooth on every device. Animating box-shadow's blur radius
-   directly (the old approach) made browsers pop between "no shadow" and
-   "full shadow" without a clean tween, which read as a square flash.
-   The container needs overflow-x:auto for horizontal scroll, and per the
-   CSS spec that silently forces overflow-y to "auto" too (there's no way
-   to keep one axis scrollable and the other visible on the same element)
-   — so the generous vertical padding above is what actually keeps this
-   glow from getting clipped, not an overflow override. */
-.goal-chip.chip-today::after {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border-radius: 17px;
-  box-shadow: 0 0 16px 2px rgba(244, 201, 93, 0.45);
-  opacity: 0;
-  animation: goalChipGlow 2.4s ease-in-out 0.5s infinite;
-  pointer-events: none;
-  z-index: -1;
+/* Раніше світіння виходило за межі самої картки (inset:-3px + розмитий
+   box-shadow) — і його обрізало сусідньою карткою впритул та/або
+   overflow-контейнером (overflow-x:auto на батьківському елементі за
+   специфікацією CSS автоматично вимикає overflow-y:visible теж,
+   обійти це неможливо самим лише overflow-y). Тепер пульсація — це
+   ВНУТРІШНЯ obводка (inset-тінь без розмиття, рівно по контуру самої
+   картки), яка фізично не може вийти за її межі, тому обрізати
+   нічому — жодних "квадратних" артефактів. */
+@keyframes goalChipPulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(244, 201, 93, 0.2); }
+  50% { box-shadow: inset 0 0 0 1.5px rgba(244, 201, 93, 0.95); }
 }
 @keyframes goalChipIn {
   from { opacity: 0; transform: translateY(6px) scale(0.94); }
   to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes goalChipGlow {
-  0%, 100% { opacity: 0.15; }
-  50% { opacity: 1; }
 }
 .goal-chip.chip-off { border-style: dashed; opacity: 0.7; box-shadow: none; }
 .goal-chip.chip-off.chip-today { opacity: 1; }
