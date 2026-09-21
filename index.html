@@ -2,7 +2,13 @@
 <html lang="uk">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<!-- interactive-widget=resizes-content (Safari 17.4+/Chrome 108+) makes the
+     virtual keyboard actually shrink the layout viewport instead of just the
+     visual one — without it, fixed-position modals stay sized against the
+     pre-keyboard viewport while iOS separately scrolls the page to keep the
+     focused input visible, which is what made a gap open up above the
+     keyboard with the background page showing through and jumping around. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
 <title>ShiftMe</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,8 +21,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="ShiftMe" />
-  <script type="module" crossorigin src="./assets/index-D7lBHC71.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-DMvz2RjU.css">
+  <script type="module" crossorigin src="./assets/index-BifxJ3hw.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-BBacnEhD.css">
 <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
 <body>
 <div id="app"></div>
