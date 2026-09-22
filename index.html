@@ -22,7 +22,16 @@
 <meta name="theme-color" content="#14171c" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<!-- black-translucent is deprecated (Apple has flagged it for removal) and
+     has documented reports of causing exactly this kind of bottom safe-area
+     layout glitch in standalone PWAs — it makes the status bar translucent
+     by letting page content render underneath/through it, which apparently
+     also disturbs how the OS computes the reserved space at the OTHER end
+     of the screen in some iOS versions. Switched to "black": an opaque bar
+     instead of a see-through one — a real (minor) visual change, but this
+     is the most direct lead found yet for the bottom "chin" that persisted
+     through every CSS-only attempt. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
 <meta name="apple-mobile-web-app-title" content="ShiftMe" />
   <script type="module" crossorigin src="./assets/index-BTrQrrg1.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-09YhOPma.css">
