@@ -2,13 +2,16 @@
 <html lang="uk">
 <head>
 <meta charset="UTF-8" />
-<!-- interactive-widget=resizes-content (Safari 17.4+/Chrome 108+) makes the
-     virtual keyboard actually shrink the layout viewport instead of just the
-     visual one — without it, fixed-position modals stay sized against the
-     pre-keyboard viewport while iOS separately scrolls the page to keep the
-     focused input visible, which is what made a gap open up above the
-     keyboard with the background page showing through and jumping around. -->
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+<!-- interactive-widget=resizes-content was tried here to fix the
+     keyboard-gap bug, but on this iOS PWA it caused a worse regression: a
+     permanent dim "chin" at the bottom of every fixed-position window, even
+     with no keyboard open at all (the browser appears to permanently
+     reserve chrome space rather than only while the keyboard is up).
+     Reverted — the body scroll-lock in core/scrollLock.js is the real fix
+     for the background-scrolling part of that bug; the keyboard-gap itself
+     needs a different, more surgical approach (e.g. the visualViewport API)
+     if it's still an issue. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 <title>ShiftMe</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,8 +24,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="ShiftMe" />
-  <script type="module" crossorigin src="./assets/index-BbI9u2Na.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-BwEVsFDt.css">
+  <script type="module" crossorigin src="./assets/index-DEMMjsHc.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-B9dg0-32.css">
 <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
 <body>
 <div id="app"></div>
