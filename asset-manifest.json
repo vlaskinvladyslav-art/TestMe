@@ -1,6 +1,6 @@
 {
   "../@vite-plugin-pwa/virtual:pwa-register": {
-    "file": "assets/virtual_pwa-register-BClzWQJS.js",
+    "file": "assets/virtual_pwa-register-BUwUO3Mz.js",
     "name": "virtual_pwa-register",
     "src": "../@vite-plugin-pwa/virtual:pwa-register",
     "isDynamicEntry": true,
@@ -11,8 +11,8 @@
       "node_modules/workbox-window/build/workbox-window.prod.es5.mjs"
     ]
   },
-  "_UpdatesBanner-C9ulXzIn.js": {
-    "file": "assets/UpdatesBanner-C9ulXzIn.js",
+  "_UpdatesBanner-DDdJ7_BL.js": {
+    "file": "assets/UpdatesBanner-DDdJ7_BL.js",
     "name": "UpdatesBanner",
     "imports": [
       "index.html"
@@ -23,7 +23,7 @@
     "name": "firebase"
   },
   "index.html": {
-    "file": "assets/index-CL7Ehkd5.js",
+    "file": "assets/index-CccOProe.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -47,7 +47,7 @@
     "isDynamicEntry": true
   },
   "src/components/windows/AdminWindow.svelte": {
-    "file": "assets/AdminWindow-swl60x7q.js",
+    "file": "assets/AdminWindow-CADj_Vm6.js",
     "name": "AdminWindow",
     "src": "src/components/windows/AdminWindow.svelte",
     "isDynamicEntry": true,
@@ -57,28 +57,28 @@
     ]
   },
   "src/processes/balancing/BalancingProcess.svelte": {
-    "file": "assets/BalancingProcess-CFB4iI31.js",
+    "file": "assets/BalancingProcess-CiBlQXED.js",
     "name": "BalancingProcess",
     "src": "src/processes/balancing/BalancingProcess.svelte",
     "isDynamicEntry": true,
     "imports": [
       "_firebase-DMVDwz5m.js",
       "index.html",
-      "_UpdatesBanner-C9ulXzIn.js"
+      "_UpdatesBanner-DDdJ7_BL.js"
     ],
     "css": [
-      "assets/BalancingProcess-D8X3D9SE.css"
+      "assets/BalancingProcess-DGH69c3j.css"
     ]
   },
   "src/processes/quality_control/QualityControlProcess.svelte": {
-    "file": "assets/QualityControlProcess-l0n-gSKV.js",
+    "file": "assets/QualityControlProcess-CfPRMYJ-.js",
     "name": "QualityControlProcess",
     "src": "src/processes/quality_control/QualityControlProcess.svelte",
     "isDynamicEntry": true,
     "imports": [
       "_firebase-DMVDwz5m.js",
       "index.html",
-      "_UpdatesBanner-C9ulXzIn.js"
+      "_UpdatesBanner-DDdJ7_BL.js"
     ],
     "css": [
       "assets/QualityControlProcess-DVYrse1l.css"
